@@ -24,7 +24,9 @@ function getServiceName(tags?: string[]) {
   return 'ApiService';
 }
 
-export function generateClient(endpoints: Endpoint[]): string {
+export function generateClient(endpoints: Endpoint[], options: { errorStyle?: 'class' | 'shape' | 'both' } = {}): string {
+  const errorStyle = options.errorStyle || 'both';
+  const errorTypeName = errorStyle === 'shape' ? 'AppErrorShape' : 'AppError';
   const project = new Project({ manipulationSettings: { quoteKind: QuoteKind.Single, indentationText: IndentationText.TwoSpaces } });
   const file = project.createSourceFile('client.ts', '', { overwrite: true });
 
@@ -119,7 +121,7 @@ export function generateClient(endpoints: Endpoint[]): string {
         isStatic: true,
         isAsync: true,
         parameters: [{ name: 'opts', type: optsType, hasQuestionToken: true }],
-        returnType: `Promise<import('neverthrow').Result<${responseType}, AppErrorShape>>`,
+        returnType: `Promise<import('neverthrow').Result<${responseType}, ${errorTypeName}>>`,
         statements: stmts,
       });
     });

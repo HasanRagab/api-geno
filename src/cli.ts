@@ -10,8 +10,9 @@ program
   .command("generate")
   .requiredOption("-i, --input <file>", "OpenAPI JSON file")
   .requiredOption("-o, --output <dir>", "Output directory")
+  .option('--error-style <style>', "Error emission style: 'class' | 'shape' | 'both'", 'both')
   .action(async (opts: any) => {
-    const files = await generateFromOpenAPI(opts.input);
+    const files = await generateFromOpenAPI(opts.input, [], { errorStyle: opts.errorStyle });
 
     if (!fs.existsSync(opts.output)) fs.mkdirSync(opts.output, { recursive: true });
 

@@ -85,15 +85,16 @@ export const httpAdapter: HttpAdapter = {
 
 export function generateFromOpenAPI(
   filePath: string,
-  plugins: GeneratorPlugin[] = []
+  plugins: GeneratorPlugin[] = [],
+  options: { errorStyle?: 'class' | 'shape' | 'both' } = {}
 ): Record<string, string> {
   const api: OpenAPIModel = parseOpenAPI(filePath);
 
   plugins.forEach(p => p.beforeGenerate?.(api));
 
   const typesCode = generateTypes(api.schemas);
-  const clientCode = generateClient(api.endpoints);
-  const errorsCode = generateErrors();
+  const clientCode = generateClient(api.endpoints, { errorStyle: options.errorStyle });
+  const errorsCode = generateErrors(options.errorStyle || 'both');
   const configTypesCode = generateConfigTypes();
   const configCode = generateConfig();
 

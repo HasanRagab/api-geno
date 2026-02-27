@@ -1,6 +1,6 @@
 import { Project, QuoteKind, IndentationText } from 'ts-morph';
 
-export function generateErrors(): string {
+export function generateErrors(style: 'class' | 'shape' | 'both' = 'both'): string {
   const project = new Project({
     manipulationSettings: {
       quoteKind: QuoteKind.Single,
@@ -49,51 +49,53 @@ export function generateErrors(): string {
     ],
   });
 
-  const appError = file.addClass({ name: 'AppError', isExported: true, extends: 'Error' });
+  // Only add runtime Error classes if style allows classes
+  if (style !== 'shape') {
+    const appError = file.addClass({ name: 'AppError', isExported: true, extends: 'Error' });
 
-  appError.addProperty({ name: 'type', type: 'ErrorType', initializer: "'app'" });
+    appError.addProperty({ name: 'type', type: 'ErrorType', initializer: "'app'" });
 
-  appError.addConstructor({
-    parameters: [{ name: 'message', type: 'string', hasQuestionToken: true }],
-    statements: "super(message);\nthis.name = 'AppError';",
-  });
+    appError.addConstructor({
+      parameters: [{ name: 'message', type: 'string', hasQuestionToken: true }],
+      statements: "super(message);\nthis.name = 'AppError';",
+    });
 
-  appError.addMethod({
-    name: 'toJSON',
-    statements: "return { type: this.type, name: this.name, message: this.message };",
-  });
+    appError.addMethod({
+      name: 'toJSON',
+      statements: "return { type: this.type, name: this.name, message: this.message };",
+    });
 
-  const httpError = file.addClass({ name: 'HttpError', isExported: true, extends: 'AppError' });
+    const httpError = file.addClass({ name: 'HttpError', isExported: true, extends: 'AppError' });
 
-  httpError.addProperty({ name: 'type', type: 'ErrorType', initializer: "'http'" });
-  httpError.addProperty({ name: 'status', type: 'number' });
-  httpError.addProperty({ name: 'statusText', type: 'string', hasQuestionToken: true });
-  httpError.addProperty({ name: 'body', type: 'any', hasQuestionToken: true });
+    httpError.addProperty({ name: 'type', type: 'ErrorType', initializer: "'http'" });
+    httpError.addProperty({ name: 'status', type: 'number' });
+    httpError.addProperty({ name: 'statusText', type: 'string', hasQuestionToken: true });
+    httpError.addProperty({ name: 'body', type: 'any', hasQuestionToken: true });
 
-  httpError.addConstructor({
-    parameters: [
-      { name: 'status', type: 'number' },
-      { name: 'statusText', type: 'string', hasQuestionToken: true },
-      { name: 'body', type: 'any', hasQuestionToken: true },
-    ],
-    statements:
-      "super('HTTP ' + status + ': ' + (statusText || ''));\nthis.name = 'HttpError';\nthis.status = status;\nthis.statusText = statusText;\nthis.body = body;",
-  });
+    httpError.addConstructor({
+      parameters: [
+        { name: 'status', type: 'number' },
+        { name: 'statusText', type: 'string', hasQuestionToken: true },
+        { name: 'body', type: 'any', hasQuestionToken: true },
+      ],
+      statements:
+        "super('HTTP ' + status + ': ' + (statusText || ''));\nthis.name = 'HttpError';\nthis.status = status;\nthis.statusText = statusText;\nthis.body = body;",
+    });
 
-  httpError.addMethod({
-    name: 'toJSON',
-    statements:
-      "return { type: this.type, name: this.name, message: this.message, status: this.status, statusText: this.statusText, body: this.body };",
-  });
+    httpError.addMethod({
+      name: 'toJSON',
+      statements:
+        "return { type: this.type, name: this.name, message: this.message, status: this.status, statusText: this.statusText, body: this.body };",
+    });
 
-  const validationError = file.addClass({ name: 'ValidationError', isExported: true, extends: 'AppError' });
+    const validationError = file.addClass({ name: 'ValidationError', isExported: true, extends: 'AppError' });
 
-  validationError.addProperty({ name: 'type', type: 'ErrorType', initializer: "'validation'" });
-  validationError.addProperty({ name: 'issues', type: 'any' });
+    validationError.addProperty({ name: 'type', type: 'ErrorType', initializer: "'validation'" });
+    validationError.addProperty({ name: 'issues', type: 'any' });
 
-  validationError.addConstructor({
-    parameters: [{ name: 'issues', type: 'any' }],
-    statements: `
+    validationError.addConstructor({
+      parameters: [{ name: 'issues', type: 'any' }],
+      statements: `
       const formatIssue = function(i: any) {
         try {
           const path = i && i.path && i.path.length ? i.path.join('.') : '<root>';
@@ -136,11 +138,11 @@ export function generateErrors(): string {
       this.name = 'ValidationError';
       this.issues = issues;
     `,
-  });
+    });
 
-  validationError.addMethod({
-    name: 'toJSON',
-    statements: `
+    validationError.addMethod({
+      name: 'toJSON',
+      statements: `
       return {
         type: this.type,
         name: this.name,
@@ -148,21 +150,31 @@ export function generateErrors(): string {
         issues: this.issues
       };
     `,
-  });
+    });
+  }
 
   // add formatError helper
+  const formatParamType = style === 'shape' ? 'AppErrorShape | Error | any' : 'AppError | Error | any';
+
   file.addFunction({
     name: 'formatError',
     isExported: true,
-    parameters: [{ name: 'err', type: 'AppError | Error | any' }],
+    parameters: [{ name: 'err', type: formatParamType }],
     returnType: 'string',
     statements: `
       try {
         if (!err) return 'Unknown error';
+        // support shape objects produced by consumers
+        if (typeof err === 'object' && err && (err as any).type) {
+          const t = (err as any).type;
+          if (t === 'validation') return (err as any).message || String(err);
+          if (t === 'http') return (err as any).message || String(err);
+          if (t === 'app') return (err as any).message || String(err);
+        }
         if (err instanceof ValidationError) return err.message;
         if (err instanceof HttpError) return err.message;
         if (err instanceof AppError) return err.message || String(err);
-        if (err.message) return err.message;
+        if (err && err.message) return err.message;
         return String(err);
       } catch (e) {
         return String(err);

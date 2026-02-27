@@ -3,7 +3,10 @@ import { readFileSync } from 'fs'
 
 test('generated errors contains formatError and ValidationError', () => {
   const errors = readFileSync('./generated/errors.ts', 'utf8')
-  expect(errors).toContain('export class ValidationError')
+  // accept either runtime class or shape interface depending on error-style
+  const hasClass = errors.includes('export class ValidationError');
+  const hasShape = errors.includes('export interface ValidationErrorShape');
+  expect(hasClass || hasShape).toBe(true);
   expect(errors).toContain('export function formatError')
 })
 
