@@ -34,7 +34,7 @@ export const httpAdapter: HttpAdapter = {
       const headers = await resolveValue(OpenAPI.HEADERS);
 
       // Build final URL with BASE
-      const finalUrl = OpenAPI.BASE + (OpenAPI.ENCODE_PATH ? OpenAPI.ENCODE_PATH(url) : url);
+      let finalUrl = OpenAPI.BASE + (OpenAPI.ENCODE_PATH ? OpenAPI.ENCODE_PATH(url) : url);
 
       // Merge headers
       const finalHeaders: Record<string, string> = {
@@ -55,6 +55,27 @@ export const httpAdapter: HttpAdapter = {
       // Add auth headers
       if (token) {
         finalHeaders['Authorization'] = 'Bearer ' + token;
+      }
+      // Add auth headers and apiKey support
+      const authScheme = OpenAPI.AUTH_SCHEME;
+      if (authScheme === 'bearer' && token) {
+        finalHeaders['Authorization'] = 'Bearer ' + token;
+      } else if (authScheme === 'basic' && username && password) {
+        const creds = (typeof username === 'function' ? await username() : username) + ':' + (typeof password === 'function' ? await password() : password);
+        finalHeaders['Authorization'] = 'Basic ' + Buffer.from(creds).toString('base64');
+      } else if (authScheme === 'apiKey') {
+        const apiKeyVal = await resolveValue(OpenAPI.API_KEY);
+        const apiKeyName = OpenAPI.API_KEY_NAME;
+        const apiKeyIn = OpenAPI.API_KEY_IN || 'header';
+        if (apiKeyVal && apiKeyName) {
+          if (apiKeyIn === 'header') {
+            finalHeaders[apiKeyName] = apiKeyVal as string;
+          } else {
+            // append to query string
+            const joinChar = finalUrl.includes('?') ? '&' : '?';
+            finalUrl = finalUrl + joinChar + encodeURIComponent(apiKeyName) + '=' + encodeURIComponent(String(apiKeyVal));
+          }
+        }
       }
 
       // Don't set Content-Type for FormData (browser/axios will handle it with boundary)

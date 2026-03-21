@@ -13,6 +13,11 @@ export type OpenAPIConfig = {
   USERNAME?: string | Resolver<string>;
   PASSWORD?: string | Resolver<string>;
   HEADERS?: Headers | Resolver<Headers>;
+  // Auth scheme support: 'bearer' (uses TOKEN), 'basic' (uses USERNAME/PASSWORD), 'apiKey' (uses API_KEY and API_KEY_IN/name)
+  AUTH_SCHEME?: 'bearer' | 'basic' | 'apiKey';
+  API_KEY?: string | Resolver<string>;
+  API_KEY_NAME?: string;
+  API_KEY_IN?: 'header' | 'query';
   ENCODE_PATH?: (path: string) => string;
 };
 
@@ -31,6 +36,10 @@ export function generateConfig(): string {
   file.addStatements('  USERNAME: undefined,');
   file.addStatements('  PASSWORD: undefined,');
   file.addStatements('  HEADERS: undefined,');
+  file.addStatements("  AUTH_SCHEME: undefined,");
+  file.addStatements('  API_KEY: undefined,');
+  file.addStatements("  API_KEY_NAME: undefined,");
+  file.addStatements("  API_KEY_IN: undefined,");
   file.addStatements('  ENCODE_PATH: undefined,');
   file.addStatements('};');
 
@@ -53,6 +62,11 @@ export type OpenAPIConfig = {
   USERNAME?: string | Resolver<string>;
   PASSWORD?: string | Resolver<string>;
   HEADERS?: Headers | Resolver<Headers>;
+  // Auth scheme support
+  AUTH_SCHEME?: 'bearer' | 'basic' | 'apiKey';
+  API_KEY?: string | Resolver<string>;
+  API_KEY_NAME?: string;
+  API_KEY_IN?: 'header' | 'query';
   ENCODE_PATH?: (path: string) => string;
 };
 `;

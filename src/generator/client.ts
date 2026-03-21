@@ -33,7 +33,7 @@ export function generateClient(endpoints: Endpoint[], options: { errorStyle?: 'c
   // core imports
   file.addImportDeclaration({ moduleSpecifier: './http-adapter', namedImports: [{ name: 'httpAdapter' }] });
   file.addImportDeclaration({ moduleSpecifier: 'neverthrow', namedImports: [{ name: 'ok' }, { name: 'err' }, { name: 'Result' }] });
-  file.addImportDeclaration({ moduleSpecifier: './errors', namedImports: [{ name: 'AppError' }, { name: 'ValidationError' }, { name: 'HttpError' }, { name: 'AppErrorShape' }, { name: 'ValidationErrorShape' }, { name: 'HttpErrorShape' }] });
+  file.addImportDeclaration({ moduleSpecifier: './errors', namedImports: [{ name: 'AppError' }, { name: 'ValidationError' }, { name: 'HttpError' }, { name: 'AppErrorShape' }, { name: 'ValidationErrorShape' }, { name: 'HttpErrorShape' }, { name: 'formatError' }] });
 
   // collect type/validator imports
   const typeImports = new Set<string>();
@@ -75,23 +75,23 @@ export function generateClient(endpoints: Endpoint[], options: { errorStyle?: 'c
 
       // build statements
       let stmts = '';
-      stmts += `const { params = {}${hasBody ? ', body' : ''}, headers, cookies } = opts || {} as any;\n`;
+      stmts += `const { params = {}, body, headers, cookies } = opts || {};\n`;
 
       if (queryParams.length) {
         const keys = queryParams.map(p => `"${p.name}"`).join(', ');
-        stmts += `const queryParams = new URLSearchParams();\nconst paramsRecord = (params || {}) as Record<string, any>;\n[${keys}].forEach(key => { if (paramsRecord[key] !== undefined) { queryParams.append(key, String(paramsRecord[key])); } });\nconst queryString = queryParams.toString();\nconst url = \`${path}\${queryString ? "?" + queryString : ""}\`;\n`;
+        stmts += `const queryParams = new URLSearchParams();\nconst paramsRecord = (params || {}) as Record<string, unknown>;\n[${keys}].forEach(key => { if (paramsRecord[key] !== undefined) { queryParams.append(key, String(paramsRecord[key])); } });\nconst queryString = queryParams.toString();\nconst url = \`${path}\${queryString ? "?" + queryString : ""}\`;\n`;
       } else {
         stmts += `const url = \`${path}\`;\n`;
       }
 
-      if (ep.queryParamsRef) stmts += `if (params) { try { const validated = ${ep.queryParamsRef}Schema.parse(params); Object.assign(params, validated); } catch (error: any) { return err(new ValidationError(error)); } }\n`;
-      if (ep.requestBodyRef) stmts += `if (body) { try { const validated = ${ep.requestBodyRef}Schema.parse(body); Object.assign(body, validated); } catch (error: any) { return err(new ValidationError(error)); } }\n`;
+      if (ep.queryParamsRef) stmts += `if (params) { try { const validated = ${ep.queryParamsRef}Schema.parse(params); Object.assign(params, validated); } catch (error: unknown) { return err(new ValidationError(formatError(error))); } }\n`;
+      if (ep.requestBodyRef) stmts += `if (body) { try { const validated = ${ep.requestBodyRef}Schema.parse(body); Object.assign(body, validated); } catch (error: unknown) { return err(new ValidationError(formatError(error))); } }\n`;
 
       if (hasBody) {
         if (contentType === 'multipart/form-data') {
-          stmts += `let requestBody: any = undefined; if (body) { requestBody = new FormData(); Object.entries(body as Record<string, any>).forEach(([key, value]) => { if (value !== null && value !== undefined) { if (value instanceof File || value instanceof Blob) { requestBody.append(key, value); } else { requestBody.append(key, String(value)); } } }); }\n`;
+          stmts += `let requestBody: unknown = undefined; if (body) { requestBody = new FormData(); Object.entries(body as Record<string, unknown>).forEach(([key, value]) => { if (value !== null && value !== undefined) { if (value instanceof File || value instanceof Blob) { requestBody = requestBody as FormData; (requestBody as FormData).append(key, value); } else { requestBody = requestBody as FormData; (requestBody as FormData).append(key, String(value)); } } }); }\n`;
         } else if (contentType === 'application/x-www-form-urlencoded') {
-          stmts += `let requestBody: any = undefined; if (body) { const paramsUrl = new URLSearchParams(); Object.entries(body as Record<string, any>).forEach(([key, value]) => { if (value !== null && value !== undefined) paramsUrl.append(key, String(value)); }); requestBody = paramsUrl.toString(); }\n`;
+          stmts += `let requestBody: unknown = undefined; if (body) { const paramsUrl = new URLSearchParams(); Object.entries(body as Record<string, unknown>).forEach(([key, value]) => { if (value !== null && value !== undefined) paramsUrl.append(key, String(value)); }); requestBody = paramsUrl.toString(); }\n`;
         } else {
           stmts += `const requestBody = body ? JSON.stringify(body) : undefined;\n`;
         }
@@ -107,8 +107,10 @@ export function generateClient(endpoints: Endpoint[], options: { errorStyle?: 'c
       stmts += `return await httpAdapter.request<${responseType}>(url, { method: "${ep.method}", headers: mergedHeaders, body: requestBody });`;
 
       // build a tighter opts type
-      const paramsType = ep.queryParamsRef ? ep.queryParamsRef : ((ep.parameters || []).length ? 'Record<string, any>' : 'undefined');
-      const bodyType = ep.requestBodyRef ? ep.requestBodyRef : (hasBody ? 'Record<string, any>' : 'undefined');
+      const paramsType = ep.queryParamsRef
+        ? `{ [K in keyof ${ep.queryParamsRef}]?: ${ep.queryParamsRef}[K] }`
+        : ((ep.parameters || []).length ? '{ [key: string]: unknown }' : 'undefined');
+      const bodyType = ep.requestBodyRef ? ep.requestBodyRef : (hasBody ? 'unknown' : 'undefined');
       const parts: string[] = [];
       if (paramsType && paramsType !== 'undefined') parts.push(`params?: ${paramsType}`);
       if (bodyType && bodyType !== 'undefined') parts.push(`body?: ${bodyType}`);

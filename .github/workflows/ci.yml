@@ -9,13 +9,24 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        bun-version: [stable]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache Bun
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun
+            .bun
+          key: ${{ runner.os }}-bun-${{ matrix.bun-version }}-${{ hashFiles('**/bun.lock') }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: stable
+          bun-version: ${{ matrix.bun-version }}
 
       - name: Install dependencies
         run: |
@@ -28,6 +39,11 @@ jobs:
       - name: Regenerate generated files
         run: |
           bun dist/cli.js generate -i api.json -o ./generated
+
+      - name: Verify generated outputs are committed
+        run: |
+          git status --porcelain
+          git diff --quiet || (echo 'Generated files differ - please commit generated outputs' && exit 1)
 
       - name: Run tests
         run: |

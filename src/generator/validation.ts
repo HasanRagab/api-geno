@@ -1,6 +1,31 @@
 import { Schema } from '../models';
 
 export function getZodType(schema: Schema): string {
+	if (schema.$ref) {
+		const refName = schema.$ref.split('/').pop();
+		if (!refName) return 'z.unknown()';
+		const refType = `z.lazy(() => ${refName}Schema)`;
+		return schema.nullable ? `${refType}.nullable()` : refType;
+	}
+
+	if (schema.allOf && schema.allOf.length > 0) {
+		const refs = schema.allOf.map((item) => getZodType(item));
+		const intersection = refs.reduce((acc, next) => `z.intersection(${acc}, ${next})`);
+		return schema.nullable ? `${intersection}.nullable()` : intersection;
+	}
+
+	if (schema.oneOf && schema.oneOf.length > 0) {
+		const refs = schema.oneOf.map((item) => getZodType(item));
+		const union = `z.union([${refs.join(', ')}])`;
+		return schema.nullable ? `${union}.nullable()` : union;
+	}
+
+	if (schema.anyOf && schema.anyOf.length > 0) {
+		const refs = schema.anyOf.map((item) => getZodType(item));
+		const union = `z.union([${refs.join(', ')}])`;
+		return schema.nullable ? `${union}.nullable()` : union;
+	}
+
 	if (!schema.type) return 'z.unknown()';
 
 	let zodType = '';
@@ -81,6 +106,10 @@ export function getZodType(schema: Schema): string {
 
 	if (schema.description) {
 		zodType += `.describe("${schema.description.replace(/"/g, '\\"')}")`;
+	}
+
+	if (schema.nullable) {
+		zodType += '.nullable()';
 	}
 
 	return zodType;

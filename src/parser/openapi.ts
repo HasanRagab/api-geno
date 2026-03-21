@@ -14,6 +14,10 @@ function normalizeSchema(schema: any): Schema {
     return { type: "object" };
   }
 
+  if (schema.$ref) {
+    return { $ref: schema.$ref };
+  }
+
   const normalized: Schema = {
     type: schema.type || "object",
   };
@@ -32,6 +36,22 @@ function normalizeSchema(schema: any): Schema {
 
   if (schema.required) {
     normalized.required = schema.required;
+  }
+
+  if (schema.allOf) {
+    normalized.allOf = schema.allOf.map((sub: any) => normalizeSchema(sub));
+  }
+
+  if (schema.oneOf) {
+    normalized.oneOf = schema.oneOf.map((sub: any) => normalizeSchema(sub));
+  }
+
+  if (schema.anyOf) {
+    normalized.anyOf = schema.anyOf.map((sub: any) => normalizeSchema(sub));
+  }
+
+  if (schema.nullable !== undefined) {
+    normalized.nullable = schema.nullable;
   }
 
   // String constraints
@@ -129,7 +149,7 @@ export function parseOpenAPI(filePath: string): OpenAPIModel {
 
       endpoints.push({
         path,
-        method: method.toUpperCase(),
+        method: method.toUpperCase() as Endpoint['method'],
         operationId: d.operationId || `${method}_${path.replace(/\W/g, "_")}`,
         tags: d.tags || [],
         parameters,
@@ -153,7 +173,7 @@ export function parseOpenAPI(filePath: string): OpenAPIModel {
   // Generate schemas for query parameters
   endpoints.forEach(ep => {
     if (ep.queryParamsRef) {
-      const queryParams = ep.parameters.filter((p: any) => p.in === "query");
+      const queryParams = ep.parameters?.filter((p: any) => p.in === "query") || [];
       if (queryParams.length > 0) {
         const queryParamProperties: Record<string, Schema> = {};
         const required: string[] = [];
