@@ -1,28 +1,19 @@
-import { Project, QuoteKind, IndentationText } from 'ts-morph';
 import { Schema } from '../models';
 import { generateValidation } from './validation';
 
 export function generateTypes(schemas: Record<string, Schema>): string {
-  const project = new Project({
-    manipulationSettings: { quoteKind: QuoteKind.Single, indentationText: IndentationText.TwoSpaces },
-  });
+  const lines: string[] = [];
 
-  const file = project.createSourceFile('types.ts', '', { overwrite: true });
+  lines.push("import { z } from 'zod';");
 
-  file.addImportDeclaration({ moduleSpecifier: 'zod', namedImports: [{ name: 'z' }] });
-
-  file.addStatements('\n// ========== Zod Validators ==========');
-  
-  const validationSource = generateValidation(schemas);
-  file.addStatements(validationSource);
-
+  // Type aliases inferred from the validation schemas
   Object.keys(schemas).forEach((name) => {
-    file.addTypeAlias({
-      name,
-      isExported: true,
-      type: `z.infer<typeof ${name}Schema>`,
-    });
+    lines.push(`export type ${name} = z.infer<typeof ${name}Schema>;`);
   });
 
-  return file.getFullText();
+  lines.push('');
+  lines.push('// ========== Zod Validators ==========');
+  lines.push(generateValidation(schemas));
+
+  return lines.join('\n');
 }

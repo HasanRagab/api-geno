@@ -1,7 +1,4 @@
-import { Project, QuoteKind, IndentationText } from 'ts-morph';
 import { Endpoint } from '../models';
- 
-// (file header previously contained Markdown fences; removed)
 
 function toMethodName(endpoint: Endpoint) {
   const operationId = endpoint.operationId;
@@ -16,10 +13,14 @@ function toMethodName(endpoint: Endpoint) {
 
 function getServiceName(tags?: string[]) {
   if (tags && tags.length > 0) {
-    let tag = tags[0];
-    tag = tag.replace(/[-_\s]+/g, ' ');
-    const pascal = tag.split(' ').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('');
-    return pascal + 'Service';
+    const tag = tags[0].replace(/[-_\s]+/g, ' ');
+    return (
+      tag
+        .split(' ')
+        .filter(Boolean)
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join('') + 'Service'
+    );
   }
   return 'ApiService';
 }
@@ -27,107 +28,90 @@ function getServiceName(tags?: string[]) {
 export function generateClient(endpoints: Endpoint[], options: { errorStyle?: 'class' | 'shape' | 'both' } = {}): string {
   const errorStyle = options.errorStyle || 'both';
   const errorTypeName = errorStyle === 'shape' ? 'AppErrorShape' : 'AppError';
-  const project = new Project({ manipulationSettings: { quoteKind: QuoteKind.Single, indentationText: IndentationText.TwoSpaces } });
-  const file = project.createSourceFile('client.ts', '', { overwrite: true });
 
-  // core imports
-  file.addImportDeclaration({ moduleSpecifier: './http-adapter', namedImports: [{ name: 'httpAdapter' }] });
-  file.addImportDeclaration({ moduleSpecifier: 'neverthrow', namedImports: [{ name: 'ok' }, { name: 'err' }, { name: 'Result' }] });
-  file.addImportDeclaration({ moduleSpecifier: './errors', namedImports: [{ name: 'AppError' }, { name: 'ValidationError' }, { name: 'HttpError' }, { name: 'AppErrorShape' }, { name: 'ValidationErrorShape' }, { name: 'HttpErrorShape' }, { name: 'formatError' }] });
+  const lines: string[] = [];
+  lines.push("import { httpAdapter } from './http-adapter';");
+  lines.push("import { ok, err, Result } from 'neverthrow';");
+  lines.push("import { AppError, ValidationError, HttpError, AppErrorShape, ValidationErrorShape, HttpErrorShape, formatError } from './errors';");
 
-  // collect type/validator imports
   const typeImports = new Set<string>();
   const validatorImports = new Set<string>();
-  endpoints.forEach(ep => {
+
+  endpoints.forEach((ep) => {
     if (ep.responseRef) typeImports.add(ep.responseRef);
-    if (ep.requestBodyRef) { typeImports.add(ep.requestBodyRef); validatorImports.add(`${ep.requestBodyRef}Schema`); }
+    if (ep.requestBodyRef) {
+      typeImports.add(ep.requestBodyRef);
+      validatorImports.add(`${ep.requestBodyRef}Schema`);
+    }
     if (ep.queryParamsRef) validatorImports.add(`${ep.queryParamsRef}Schema`);
   });
-  if (typeImports.size) file.addImportDeclaration({ moduleSpecifier: './types', namedImports: Array.from(typeImports).map(n => ({ name: n })) });
-  if (validatorImports.size) file.addImportDeclaration({ moduleSpecifier: './types', namedImports: Array.from(validatorImports).map(n => ({ name: n })) });
 
-  // group endpoints by service
+  if (typeImports.size || validatorImports.size) {
+    const all = Array.from(new Set([...typeImports, ...validatorImports]));
+    lines.push(`import { ${all.join(', ')} } from './types';`);
+  }
+
   const services = new Map<string, Endpoint[]>();
-  endpoints.forEach(ep => {
+  endpoints.forEach((ep) => {
     const name = getServiceName(ep.tags);
-    const list = services.get(name) || [];
-    list.push(ep);
-    services.set(name, list);
+    if (!services.has(name)) services.set(name, []);
+    services.get(name)?.push(ep);
   });
 
-  // create classes
   services.forEach((eps, serviceName) => {
-    const cls = file.addClass({ name: serviceName, isExported: true });
-    eps.forEach(ep => {
+    lines.push(`export class ${serviceName} {`);
+
+    eps.forEach((ep) => {
       const methodName = toMethodName(ep);
       const responseType = ep.responseRef || 'any';
+      const method = ep.method;
+      const rawPath = ep.path;
       const contentType = ep.contentType || 'application/json';
+      const queryParams = (ep.parameters || []).filter((p) => p.in === 'query');
+      const hasBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
 
-      // path templating
-      let path = ep.path;
-      (ep.parameters || []).filter(p => p.in === 'path').forEach(p => {
-        const ref = p.name.includes('-') ? `params["${p.name}"]` : `params.${p.name}`;
-        path = path.replace(`{${p.name}}`, `\${${ref}}`);
-      });
+      lines.push(`  static async ${methodName}(opts?: { params?: Record<string, unknown>; body?: unknown; headers?: Record<string, string>; cookies?: Record<string, string>; }): Promise<Result<${responseType}, ${errorTypeName}>> {`);
+      lines.push(`    const { params = {}, body, headers = {}, cookies = {} } = opts || {};`);
 
-      const queryParams = (ep.parameters || []).filter(p => p.in === 'query');
-      const hasBody = ['POST','PUT','PATCH','DELETE'].includes(ep.method);
-
-      // build statements
-      let stmts = '';
-      stmts += `const { params = {}, body, headers, cookies } = opts || {};\n`;
-
-      if (queryParams.length) {
-        const keys = queryParams.map(p => `"${p.name}"`).join(', ');
-        stmts += `const queryParams = new URLSearchParams();\nconst paramsRecord = (params || {}) as Record<string, unknown>;\n[${keys}].forEach(key => { if (paramsRecord[key] !== undefined) { queryParams.append(key, String(paramsRecord[key])); } });\nconst queryString = queryParams.toString();\nconst url = \`${path}\${queryString ? "?" + queryString : ""}\`;\n`;
+      const path = rawPath.replace(/\{([^}]+)\}/g, (_, name) => `params.${name}`).replace(/\u007f([^\u007f]+)\u007f/g, '${$1}');
+      if (queryParams.length > 0) {
+        const keys = queryParams.map((p) => `'${p.name}'`).join(', ');
+        lines.push(`    const queryParamsObj = new URLSearchParams();`);
+        lines.push(`    const paramsRecord = params as Record<string, unknown>;`);
+        lines.push(`    [${keys}].forEach((key) => { if (paramsRecord[key] !== undefined) queryParamsObj.append(key, String(paramsRecord[key])); });`);
+        lines.push(`    const queryString = queryParamsObj.toString();`);
+        lines.push(`    const url = "${path}" + (queryString ? "?" + queryString : "");`);
       } else {
-        stmts += `const url = \`${path}\`;\n`;
+        lines.push(`    const url = "${path}";`);
       }
 
-      if (ep.queryParamsRef) stmts += `if (params) { try { const validated = ${ep.queryParamsRef}Schema.parse(params); Object.assign(params, validated); } catch (error: unknown) { return err(new ValidationError(formatError(error))); } }\n`;
-      if (ep.requestBodyRef) stmts += `if (body) { try { const validated = ${ep.requestBodyRef}Schema.parse(body); Object.assign(body, validated); } catch (error: unknown) { return err(new ValidationError(formatError(error))); } }\n`;
+      if (ep.queryParamsRef) {
+        lines.push(`    try { ${ep.queryParamsRef}Schema.parse(params); } catch (error: unknown) { return err(new ValidationError(formatError(error))); }`);
+      }
+      if (ep.requestBodyRef) {
+        lines.push(`    if (body) { try { ${ep.requestBodyRef}Schema.parse(body); } catch (error: unknown) { return err(new ValidationError(formatError(error))); } }`);
+      }
 
       if (hasBody) {
         if (contentType === 'multipart/form-data') {
-          stmts += `let requestBody: unknown = undefined; if (body) { requestBody = new FormData(); Object.entries(body as Record<string, unknown>).forEach(([key, value]) => { if (value !== null && value !== undefined) { if (value instanceof File || value instanceof Blob) { requestBody = requestBody as FormData; (requestBody as FormData).append(key, value); } else { requestBody = requestBody as FormData; (requestBody as FormData).append(key, String(value)); } } }); }\n`;
+          lines.push(`    const requestBody = body as any;`);
         } else if (contentType === 'application/x-www-form-urlencoded') {
-          stmts += `let requestBody: unknown = undefined; if (body) { const paramsUrl = new URLSearchParams(); Object.entries(body as Record<string, unknown>).forEach(([key, value]) => { if (value !== null && value !== undefined) paramsUrl.append(key, String(value)); }); requestBody = paramsUrl.toString(); }\n`;
+          lines.push(`    const requestBody = body ? new URLSearchParams(body as Record<string, string>).toString() : undefined;`);
         } else {
-          stmts += `const requestBody = body ? JSON.stringify(body) : undefined;\n`;
+          lines.push(`    const requestBody = body ? JSON.stringify(body) : undefined;`);
         }
       } else {
-        stmts += `const requestBody = undefined;\n`;
+        lines.push(`    const requestBody = undefined;`);
       }
 
-      if (contentType === 'multipart/form-data') stmts += `const mergedHeaders: Record<string, string> = { ...headers };\n`;
-      else stmts += `const mergedHeaders: Record<string, string> = { \n  \"Content-Type\": \"${contentType}\",\n  ...headers,\n};\n`;
-
-      stmts += `if (cookies && Object.keys(cookies).length > 0) { const cookieString = Object.entries(cookies).map(([k, v]) => k + '=' + v).join('; '); mergedHeaders['Cookie'] = cookieString; }\n`;
-
-      stmts += `return await httpAdapter.request<${responseType}>(url, { method: "${ep.method}", headers: mergedHeaders, body: requestBody });`;
-
-      // build a tighter opts type
-      const paramsType = ep.queryParamsRef
-        ? `{ [K in keyof ${ep.queryParamsRef}]?: ${ep.queryParamsRef}[K] }`
-        : ((ep.parameters || []).length ? '{ [key: string]: unknown }' : 'undefined');
-      const bodyType = ep.requestBodyRef ? ep.requestBodyRef : (hasBody ? 'unknown' : 'undefined');
-      const parts: string[] = [];
-      if (paramsType && paramsType !== 'undefined') parts.push(`params?: ${paramsType}`);
-      if (bodyType && bodyType !== 'undefined') parts.push(`body?: ${bodyType}`);
-        parts.push('headers?: Record<string, string>');
-        parts.push('cookies?: Record<string, string>');
-      const optsType = `{ ${parts.join(', ')} }`;
-
-      cls.addMethod({
-        name: methodName,
-        isStatic: true,
-        isAsync: true,
-        parameters: [{ name: 'opts', type: optsType, hasQuestionToken: true }],
-        returnType: `Promise<import('neverthrow').Result<${responseType}, ${errorTypeName}>>`,
-        statements: stmts,
-      });
+      lines.push(`    const mergedHeaders: Record<string, string> = { 'Content-Type': '${contentType}', ...headers };`);
+      lines.push("    if (cookies && Object.keys(cookies).length > 0) { mergedHeaders['Cookie'] = Object.entries(cookies).map(([k, v]) => k + '=' + v).join('; '); }");
+      lines.push(`    return await httpAdapter.request<${responseType}>(url, { method: '${method}', headers: mergedHeaders, body: requestBody });`);
+      lines.push(`  }`);
     });
+
+    lines.push('}');
   });
 
-  return file.getFullText();
+  return lines.join('\n');
 }
