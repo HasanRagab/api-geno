@@ -1,7 +1,7 @@
 import { AdminCoursesGroupsService, CoursesService } from "./generated/client";
 
 async function main() {
-    const req = await AdminCoursesGroupsService.addGroupToHierarchy({ params: { hierarchyId: '123', groupId: '456' } });
+    const req = await CoursesService.findAll({ params: { hierarchyId: '123', groupId: 3 } });
     if (req.isOk()) {
         console.log(req.value);
     } else {

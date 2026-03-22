@@ -113,15 +113,15 @@ export function generateFromOpenAPI(
 
   plugins.forEach(p => p.beforeGenerate?.(api));
 
-  const typesCode = generateTypes(api.schemas);
-  const clientCode = generateClient(api.endpoints, { errorStyle: options.errorStyle });
+  const typesFiles = generateTypes(api.schemas);
+  const clientFiles = generateClient(api.endpoints, { errorStyle: options.errorStyle });
   const errorsCode = generateErrors(options.errorStyle || 'both');
   const configTypesCode = generateConfigTypes();
   const configCode = generateConfig();
 
-  const files = {
-    "types.ts": typesCode,
-    "client.ts": clientCode,
+  const files: Record<string, string> = {
+    ...typesFiles,
+    ...clientFiles,
     "http-adapter.ts": generateHttpAdapter(),
     "errors.ts": errorsCode,
     "openapi.config.ts": configTypesCode + "\n\n" + configCode,

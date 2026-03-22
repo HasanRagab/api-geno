@@ -115,7 +115,7 @@ export function getZodType(schema: Schema): string {
 	return zodType;
 }
 
-function buildZodSchema(name: string, schema: Schema): string {
+export function buildZodSchema(name: string, schema: Schema): string {
 	const zodType = getZodType(schema);
 	const strictSuffix = name.includes('QueryParams') ? '.strict()' : '';
 	return `export const ${name}Schema = ${zodType}${strictSuffix};`;

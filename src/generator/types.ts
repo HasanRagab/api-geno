@@ -1,19 +1,64 @@
 import { Schema } from '../models';
-import { generateValidation } from './validation';
+import { buildZodSchema } from './validation';
 
-export function generateTypes(schemas: Record<string, Schema>): string {
-  const lines: string[] = [];
+function collectSchemaRefs(schema: Schema, refs = new Set<string>()): Set<string> {
+  if (!schema) return refs;
 
-  lines.push("import { z } from 'zod';");
+  if (schema.$ref) {
+    const ref = schema.$ref.split('/').pop();
+    if (ref) refs.add(ref);
+    return refs;
+  }
 
-  // Type aliases inferred from the validation schemas
-  Object.keys(schemas).forEach((name) => {
+  const array = ['items', 'allOf', 'oneOf', 'anyOf'];
+  for (const key of array) {
+    const value = (schema as any)[key];
+    if (!value) continue;
+    if (Array.isArray(value)) {
+      value.forEach((item: Schema) => collectSchemaRefs(item, refs));
+    } else {
+      collectSchemaRefs(value, refs);
+    }
+  }
+
+  if (schema.properties) {
+    Object.values(schema.properties).forEach((prop) => collectSchemaRefs(prop, refs));
+  }
+
+  if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+    collectSchemaRefs(schema.additionalProperties, refs);
+  }
+
+  return refs;
+}
+
+export function generateTypes(schemas: Record<string, Schema>): Record<string, string> {
+  const files: Record<string, string> = {};
+
+  // create per-schema file with schema + type
+  Object.entries(schemas).forEach(([name, schema]) => {
+    const refs = Array.from(collectSchemaRefs(schema)).filter((ref) => ref !== name);
+    const imports = refs
+      .map((ref) => `import { ${ref}Schema, ${ref} } from './${ref}';`)
+      .join('\n');
+
+    const lines: string[] = ["import { z } from 'zod';"];
+
+    if (imports) lines.push(imports);
+
+    lines.push('');
+    lines.push(buildZodSchema(name, schema));
     lines.push(`export type ${name} = z.infer<typeof ${name}Schema>;`);
+
+    files[`types/${name}.ts`] = lines.join('\n');
   });
 
-  lines.push('');
-  lines.push('// ========== Zod Validators ==========');
-  lines.push(generateValidation(schemas));
+  // root aggregator
+  const rootLines = Object.keys(schemas)
+    .map((name) => `export * from './types/${name}';`)
+    .join('\n');
 
-  return lines.join('\n');
+  files['types.ts'] = rootLines;
+
+  return files;
 }

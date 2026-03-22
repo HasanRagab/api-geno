@@ -46,8 +46,9 @@ program
 
     for (const [name, content] of Object.entries(files)) {
       const filePath = path.join(opts.output, name);
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(filePath, content as string, "utf-8");
-      console.log(`Generated ${filePath}`);
     }
 
     fs.writeFileSync(hashPath, hash, 'utf8');

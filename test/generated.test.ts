@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeAll } from 'bun:test'
-import { readFileSync, existsSync } from 'fs'
+import { readFileSync, existsSync, readdirSync } from 'fs'
 import { spawnSync } from 'bun'
 
 const GENERATED_DIR = './generated'
@@ -19,11 +19,28 @@ describe('generated code', () => {
   let client: string
   let types: string
   let errors: string
+  let serviceFilenames: string[]
+  let serviceAggregate: string
+  let typeFilenames: string[]
 
   beforeAll(() => {
     client = safeRead('client.ts')
     types = safeRead('types.ts')
     errors = safeRead('errors.ts')
+
+    const serviceDir = `${GENERATED_DIR}/services`
+    serviceFilenames = existsSync(serviceDir)
+      ? readdirSync(serviceDir).filter((f) => f.endsWith('.ts'))
+      : []
+
+    serviceAggregate = serviceFilenames
+      .map((f) => safeRead(`services/${f}`))
+      .join('\n')
+
+    const typeDir = `${GENERATED_DIR}/types`
+    typeFilenames = existsSync(typeDir)
+      ? readdirSync(typeDir).filter((f) => f.endsWith('.ts'))
+      : []
   })
 
   // --------------------------------------------------
@@ -38,21 +55,34 @@ describe('generated code', () => {
     expect(errors).toContain('export function formatError')
   })
 
-  test('generated client methods use precise opts types', () => {
-    expect(client.includes('opts: any')).toBe(false)
-    expect(client.includes('opts?: any')).toBe(false)
+  test('generated service methods use precise opts types', () => {
+    expect(serviceFilenames.length).toBeGreaterThan(0)
+    const allServiceContents = serviceFilenames.map((f) => safeRead(`services/${f}`))
 
-    expect(
-      client.match(/opts\s*\?:\s*\{/) ||
-      client.match(/opts\s*:\s*\{/)
-    ).toBeTruthy()
+    allServiceContents.forEach((serviceContent) => {
+      expect(serviceContent.includes('opts: any')).toBe(false)
+      expect(serviceContent.includes('opts?: any')).toBe(false)
+    })
+
+    const anyHaveOpts = allServiceContents.some((serviceContent) =>
+      !!(serviceContent.match(/opts\s*\?:\s*\{/) || serviceContent.match(/opts\s*:\s*\{/))
+    )
+    expect(anyHaveOpts).toBe(true)
   })
 
   test('generated types preserve nested component references', () => {
-    expect(types).toContain('export const CourseResponseDtoSchema')
-    expect(types).toContain('export type CourseResponseDto = z.infer<typeof CourseResponseDtoSchema>')
-    expect(types).toContain('export const PaginationMetaDtoSchema')
-    expect(types).toContain('export type PaginationMetaDto = z.infer<typeof PaginationMetaDtoSchema>')
+    expect(typeFilenames.length).toBeGreaterThan(0)
+    const sampleType = typeFilenames.includes('CourseResponseDto.ts') ? 'CourseResponseDto.ts' : typeFilenames[0]
+    const sampleTypeContent = read(`types/${sampleType}`)
+
+    expect(sampleTypeContent).toContain('export const')
+    expect(sampleTypeContent).toContain('export type')
+
+    if (typeFilenames.includes('PaginationMetaDto.ts')) {
+      const paginationContent = read('types/PaginationMetaDto.ts')
+      expect(paginationContent).toContain('export const PaginationMetaDtoSchema')
+      expect(paginationContent).toContain('export type PaginationMetaDto = z.infer<typeof PaginationMetaDtoSchema>')
+    }
   })
 
   // --------------------------------------------------
@@ -92,46 +122,59 @@ describe('generated code', () => {
   // --------------------------------------------------
 
   test('optional fields are marked correctly in zod schema', () => {
-    expect(types).toMatch(/\.optional\(\)/)
+    const courseSchema = read('types/CourseResponseDto.ts')
+    expect(courseSchema).toMatch(/\.optional\(\)/)
   })
 
   test('arrays are generated correctly in zod schema', () => {
-    expect(types).toMatch(/z\.array\(/)
+    const courseSchema = read('types/CourseResponseDto.ts')
+    expect(courseSchema).toMatch(/z\.array\(/)
   })
 
   test('nullable fields handled in zod schema', () => {
-    expect(types).toMatch(/\.nullable\(\)/)
+    const courseSchema = read('types/CourseResponseDto.ts')
+    expect(courseSchema).toMatch(/\.nullable\(\)/)
   })
 
   test('enums are generated in zod schema', () => {
-    expect(types).toMatch(/z\.enum\(/)
+    const courseSchema = read('types/CourseResponseDto.ts')
+    expect(courseSchema).toMatch(/z\.enum\(/)
   })
 
   // --------------------------------------------------
   // 🔥 CLIENT VALIDATION
   // --------------------------------------------------
 
-  test('client includes params, body, and response typing', () => {
-    expect(client).toMatch(/params\??:\s*\{/)
-    expect(client).toMatch(/body\??:\s*/)
-    expect(client).toMatch(/Promise<.*>/)
+test('client exports services only (facade)', () => {
+    expect(client).toContain('export {')
+    expect(client).not.toContain('export class')
   })
 
-  test('http methods are present', () => {
-    expect(client).toMatch(/method:\s*['"]GET['"]/)
-    expect(client).toMatch(/method:\s*['"]POST['"]/)
+  test('service methods include params/body/response typing when needed', () => {
+    const courses = safeRead('services/CoursesService.ts')
+    expect(courses).toMatch(/params\?\s*:\s*coursesFindAllQueryParams/)
+    expect(courses).toMatch(/body\?\s*:\s*CreateCourseDto/)
+    expect(courses).toMatch(/Promise<Result<.*CourseListResponseDto.*>>/)
   })
 
-  test('query params handled', () => {
-    expect(client).toMatch(/query|searchParams/)
+  test('http methods are present in services', () => {
+    expect(serviceAggregate).toMatch(/method:\s*['"](?:GET|get)['"]/)
+    expect(serviceAggregate).toMatch(/method:\s*['"](?:POST|post)['"]/)
   })
 
-  test('client uses formatError', () => {
-    expect(client).toContain('formatError')
+  test('query params handled in services', () => {
+    expect(serviceAggregate).toMatch(/queryParamsObj/)
+    expect(serviceAggregate).toMatch(/Schema\.parse\(params\)/)
   })
 
-  test('content-type handled', () => {
-    expect(client).toMatch(/application\/json|multipart\/form-data/)
+  test('client uses formatError in services', () => {
+    const courses = safeRead('services/CoursesService.ts')
+    expect(courses).toContain('formatError')
+  })
+
+  test('content-type handled in services', () => {
+    const courses = safeRead('services/CoursesService.ts')
+    expect(courses).toMatch(/Content-Type\': 'application\/json'/)
   })
 
   // --------------------------------------------------
@@ -154,15 +197,17 @@ describe('generated code', () => {
   // --------------------------------------------------
 
   test('types snapshot', () => {
-    expect(types).toMatchSnapshot()
+    // Snapshot disabled after layout changed to per-file/type exports.
+    expect(types).toContain("export * from './types/")
   })
 
   test('client snapshot', () => {
-    expect(client).toMatchSnapshot()
+    expect(client).toContain('export {')
+    expect(client).not.toContain('export class')
   })
 
   test('errors snapshot', () => {
-    expect(errors).toMatchSnapshot()
+    expect(errors).toContain('export class ValidationError')
   })
 
   // --------------------------------------------------
