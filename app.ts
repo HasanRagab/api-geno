@@ -1,7 +1,7 @@
-import { ApiService } from "./generated/client";
+import { CoursesService, UsersService } from "./generated/client";
 
 async function main() {
-    const req = await ApiService.get__union();
+    const req = await CoursesService.coursesFindAll();
     if (req.isOk()) {
         console.log(req.value);
     } else {

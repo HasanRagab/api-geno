@@ -9,6 +9,6 @@ test('e2e mock: client uses httpAdapter and returns ok result', async () => {
     return ok({ data: 'stubbed' });
   };
 
-  const res = await CoursesService.findAll({ params: { limit: 1 } });
+  const res = await CoursesService.coursesFindAll({ params: { limit: 1 } });
   expect(res.isOk()).toBe(true);
 });

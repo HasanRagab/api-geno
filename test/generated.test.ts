@@ -1,6 +1,10 @@
 import { test, expect, describe, beforeAll } from 'bun:test'
-import { readFileSync, existsSync, readdirSync } from 'fs'
+import fs, { readFileSync, existsSync, readdirSync } from 'fs'
+import path from 'path'
 import { spawnSync } from 'bun'
+import { generateClient } from '../src/generator/client'
+import { generateFromOpenAPI } from '../src/index'
+import { Endpoint } from '../src/models'
 
 const GENERATED_DIR = './generated'
 
@@ -68,6 +72,130 @@ describe('generated code', () => {
       !!(serviceContent.match(/opts\s*\?:\s*\{/) || serviceContent.match(/opts\s*:\s*\{/))
     )
     expect(anyHaveOpts).toBe(true)
+  })
+
+  test('generated methods assign defaults for params/headers/cookies', () => {
+    const endpoints: Endpoint[] = [
+      {
+        path: '/items',
+        method: 'GET',
+        operationId: 'listItems',
+        tags: ['Items'],
+        parameters: [{ name: 'page', in: 'query', schema: { type: 'number' } }],
+        requestBody: undefined,
+        requestBodyRef: undefined,
+        queryParamsRef: 'itemsFindAllQueryParams',
+        responseRef: 'ItemListResponseDto',
+        contentType: 'application/json',
+        responses: {},
+      },
+    ]
+
+    const generated = generateClient(endpoints)
+    const service = generated['services/ItemsService.ts']
+
+    expect(service).toContain('const { params = {}, headers = {}, cookies = {} } = opts;')
+  })
+
+  test('safe method naming dedupes collision operations', () => {
+    const endpoints: Endpoint[] = [
+      {
+        path: '/users',
+        method: 'GET',
+        operationId: 'getUser',
+        tags: ['Users'],
+        parameters: [],
+        requestBody: undefined,
+        requestBodyRef: undefined,
+        queryParamsRef: undefined,
+        responseRef: undefined,
+        contentType: 'application/json',
+        responses: {},
+      },
+      {
+        path: '/users/{id}',
+        method: 'GET',
+        operationId: 'getUser',
+        tags: ['Users'],
+        parameters: [{ name: 'id', in: 'path', schema: { type: 'string' } }],
+        requestBody: undefined,
+        requestBodyRef: undefined,
+        queryParamsRef: undefined,
+        responseRef: undefined,
+        contentType: 'application/json',
+        responses: {},
+      },
+    ]
+
+    const generated = generateClient(endpoints)
+    const service = generated['services/UsersService.ts']
+
+    expect(service).toContain('static async getUser(')
+    expect(service).toContain('static async getUser1(')
+  })
+
+  test('supports DELETE endpoints with requestBodyRef in opts and parser', () => {
+    const endpoints: Endpoint[] = [
+      {
+        path: '/x/{id}',
+        method: 'DELETE',
+        operationId: 'removeX',
+        tags: ['X'],
+        parameters: [{ name: 'id', in: 'path', schema: { type: 'string' } }],
+        requestBody: {},
+        requestBodyRef: 'DeleteXDto',
+        queryParamsRef: undefined,
+        responseRef: 'DeleteXResponseDto',
+        contentType: 'application/json',
+        responses: {},
+      },
+    ];
+
+    const generated = generateClient(endpoints);
+    const service = generated['services/XService.ts'];
+
+    expect(service).toContain('body?: DeleteXDto');
+    expect(service).toContain('if (body) { try { DeleteXDtoSchema.parse(body); } catch (error: unknown) { return err(new ValidationError(formatError(error))); } }');
+  })
+
+  test('generateFromOpenAPI uses fetch adapter when requested', () => {
+    const files = generateFromOpenAPI('test/specs/openapi3.json', [], { httpAdapter: 'fetch' })
+    expect(files['http-adapter.ts']).toContain('fetch(')
+    expect(files['http-adapter.ts']).not.toContain('axios')
+  })
+
+  test('plugins can transform endpoints and schemas', () => {
+    const spec = {
+      openapi: '3.0.0',
+      info: { title: 'Test', version: '1.0.0' },
+      paths: {
+        '/item': {
+          get: {
+            operationId: 'getItem',
+            responses: { '200': { description: 'OK', content: { 'application/json': { schema: { type: 'object' } } } } },
+            tags: ['Item'],
+          },
+        },
+      },
+      components: { schemas: { Item: { type: 'object' } } },
+    }
+
+    const tempPath = path.join(process.cwd(), 'test', 'tmp-openapi.json')
+    fs.writeFileSync(tempPath, JSON.stringify(spec), 'utf8')
+
+    const plugin = {
+      name: 'test-plugin',
+      transformEndpoint: (endpoint: Endpoint) => ({ ...endpoint, operationId: endpoint.operationId + 'X' }),
+      transformSchema: (name: string, schema: any) => ({ ...schema, description: 'transformed' }),
+    }
+
+    const files = generateFromOpenAPI(tempPath, [plugin], { httpAdapter: 'axios' })
+    fs.unlinkSync(tempPath)
+
+    expect(files['services/ItemService.ts']).toContain('getItemX')
+    const schemaFile = Object.entries(files).find(([key]) => key === 'types/Item.ts')
+    expect(schemaFile).toBeDefined()
+    expect(schemaFile?.[1]).toContain('transformed')
   })
 
   test('generated types preserve nested component references', () => {

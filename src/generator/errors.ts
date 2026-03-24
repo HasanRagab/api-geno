@@ -1,124 +1,213 @@
-export function generateErrors(style: 'class' | 'shape' | 'both' = 'both'): string {
-  const formatParamType = style === 'shape' ? 'AppErrorShape | Error | any' : 'AppError | Error | any';
+import { CodeBuilder } from "../codegen/builder";
 
-  const classes = style === 'shape' ? '' : `
-export class AppError extends Error {
-  type: ErrorType = 'app';
-  constructor(message?: string) {
-    super(message);
-    this.name = 'AppError';
+export function generateErrors(
+  style: "class" | "shape" | "both" = "both",
+): string {
+  const b = new CodeBuilder();
+  const includeClasses = style !== "shape";
+  const formatParamType =
+    style === "shape"
+      ? "AppErrorShape | Error | any"
+      : "AppError | Error | any";
+
+  // ─── Types and Shapes ─────────────────────────────
+  b.section("Error Types and Shapes")
+    .typeAlias("ErrorType", `'app' | 'http' | 'validation'`)
+    .interface("AppErrorShape", {
+      type: { type: "ErrorType" },
+      name: { type: "string" },
+      message: { type: "string" },
+    })
+    .interface("HttpErrorShape", {
+      type: { type: "ErrorType" },
+      name: { type: "string" },
+      message: { type: "string" },
+      status: { type: "number" },
+      statusText: { type: "string", optional: true },
+      body: { type: "any", optional: true },
+    })
+    .interface("ValidationErrorShape", {
+      type: { type: "ErrorType" },
+      name: { type: "string" },
+      message: { type: "string" },
+      issues: { type: "any" },
+    });
+
+  // ─── Classes ─────────────────────────────
+  if (includeClasses) {
+    b.section("Error Classes")
+      .classBlock(
+        "AppError",
+        (c) => {
+          c.field("type", "ErrorType", { value: "'app'" });
+          c.constructorBlock("message?: string", (ctor) => {
+            ctor
+              .line("super(message);")
+              .line(`this.name = 'AppError';`)
+              .line("Object.setPrototypeOf(this, AppError.prototype);");
+          });
+          c.method("toJSON", { returns: "any" }, (m) => {
+            m.return(
+              "{ type: this.type, name: this.name, message: this.message }",
+            );
+          });
+        },
+        { extends: "Error" },
+      )
+
+      .classBlock(
+        "HttpError",
+        (c) => {
+          c.field("type", "ErrorType", { value: "'http'" });
+          c.field("status", "number");
+          c.field("statusText", "string", { optional: true });
+          c.field("body", "any", { optional: true });
+          c.constructorBlock(
+            "status: number, statusText?: string, body?: any",
+            (ctor) => {
+              ctor
+                .line("super('HTTP ' + status + ': ' + (statusText || ''));")
+                .line("this.name = 'HttpError';")
+                .assign("this.status", "status")
+                .assign("this.statusText", "statusText")
+                .assign("this.body", "body")
+                .line("Object.setPrototypeOf(this, HttpError.prototype);");
+            },
+          );
+          c.method("toJSON", { returns: "any" }, (m) => {
+            m.return(
+              "{ type: this.type, name: this.name, message: this.message, status: this.status, statusText: this.statusText, body: this.body }",
+            );
+          });
+        },
+        { extends: "Error" },
+      )
+
+      .classBlock(
+        "ValidationError",
+        (c) => {
+          c.field("type", "ErrorType", { value: "'validation'" });
+          c.field("issues", "any");
+          c.constructorBlock("issues: any", (ctor) => {
+            // formatIssue function
+            ctor.function(
+              "formatIssue",
+              { params: "i: any", returns: "string" },
+              (f) => {
+                f.tryCatch(
+                  (t) => {
+                    t.const(
+                      "path",
+                      'i?.path?.length ? i.path.join(".") : "<root>"',
+                    );
+                    t.let("details", 'i?.message || ""');
+
+                    t.if(
+                      'i?.code === "too_small" && i.minimum !== undefined',
+                      (b) =>
+                        b.assign(
+                          "details",
+                          '`expected >= ${i.minimum}${i.inclusive === false ? " (exclusive)" : ""}`',
+                        ),
+                    );
+                    t.if(
+                      'i?.code === "too_big" && i.maximum !== undefined',
+                      (b) =>
+                        b.assign(
+                          "details",
+                          '`expected <= ${i.maximum}${i.inclusive === false ? " (exclusive)" : ""}`',
+                        ),
+                    );
+                    t.if('i?.code === "invalid_type"', (b) =>
+                      b.assign(
+                        "details",
+                        '`expected type ${i.expected ?? "unknown"}${i.received ? ", received " + i.received : ""}`',
+                      ),
+                    );
+                    t.if("!details", (b) =>
+                      b.assign("details", "JSON.stringify(i)"),
+                    );
+
+                    t.const(
+                      "received",
+                      '(i?.received !== undefined) ? (" (received: " + JSON.stringify(i.received) + ")") : ""',
+                    );
+                    t.return('path + ": " + details + received');
+                  },
+                  "e",
+                  (c) => c.return("i?.message || String(i)"),
+                );
+              },
+            );
+
+            ctor.let("message", '""');
+            ctor.if("!issues", (b) =>
+              b.assign("message", `'Validation error'`),
+            );
+            ctor.if('typeof issues === "string"', (b) =>
+              b.assign("message", "issues"),
+            );
+            ctor.if("issues?.issues && Array.isArray(issues.issues)", (b) =>
+              b.assign("message", 'issues.issues.map(formatIssue).join("; ")'),
+            );
+            ctor.if("Array.isArray(issues)", (b) =>
+              b.assign("message", 'issues.map(formatIssue).join("; ")'),
+            );
+            ctor.if("issues?.message", (b) =>
+              b.assign("message", "issues.message"),
+            );
+            ctor.if("issues?.errors && Array.isArray(issues.errors)", (b) =>
+              b.assign("message", 'issues.errors.map(formatIssue).join("; ")'),
+            );
+            ctor.tryCatch(
+              (t) =>
+                t.if("!message", (b) =>
+                  b.assign("message", "JSON.stringify(issues)"),
+                ),
+              "e",
+              (c) => c.assign("message", "String(issues)"),
+            );
+
+            ctor.line("super(message);");
+            ctor.line(`this.name = 'ValidationError';`);
+            ctor.assign("this.issues", "issues");
+            ctor.line(
+              "Object.setPrototypeOf(this, ValidationError.prototype);",
+            );
+          });
+
+          c.method("toJSON", { returns: "any" }, (m) => {
+            m.return(
+              "{ type: this.type, name: this.name, message: this.message, issues: this.issues }",
+            );
+          });
+        },
+        { extends: "Error" },
+      );
   }
-  toJSON() {
-    return { type: this.type, name: this.name, message: this.message };
-  }
-}
 
-export class HttpError extends AppError {
-  type: ErrorType = 'http';
-  status: number;
-  statusText?: string;
-  body?: any;
-  constructor(status: number, statusText?: string, body?: any) {
-    super('HTTP ' + status + ': ' + (statusText || ''));
-    this.name = 'HttpError';
-    this.status = status;
-    this.statusText = statusText;
-    this.body = body;
-  }
-  toJSON() {
-    return { type: this.type, name: this.name, message: this.message, status: this.status, statusText: this.statusText, body: this.body };
-  }
-}
+  // ─── formatError function ─────────────────────────────
+  b.function(
+    "formatError",
+    { export: true, params: `err: ${formatParamType}`, returns: "string" },
+    (f) => {
+      f.tryCatch(
+        (t) => {
+          t.if("!err", (b) => b.return(`'Unknown error'`));
+          if (style !== "shape") {
+            t.raw(`
+if (err instanceof ValidationError) return err.message;
+if (err instanceof HttpError) return err.message;
+if (err instanceof AppError) return err.message || String(err);`);
+          }
+          t.if("err && err.message", (b) => b.return("err.message"));
+          t.return("String(err)");
+        },
+        "e",
+        (c) => c.return("String(err)"),
+      );
+    },
+  );
 
-export class ValidationError extends AppError {
-  type: ErrorType = 'validation';
-  issues: any;
-  constructor(issues: any) {
-    const formatIssue = function(i: any) {
-      try {
-        const path = i && i.path && i.path.length ? i.path.join('.') : '<root>';
-        var details = i && i.message ? i.message : '';
-        if (i && i.code === 'too_small' && i.minimum !== undefined) {
-          details = 'expected >= ' + i.minimum + (i.inclusive === false ? ' (exclusive)' : '');
-        } else if (i && i.code === 'too_big' && i.maximum !== undefined) {
-          details = 'expected <= ' + i.maximum + (i.inclusive === false ? ' (exclusive)' : '');
-        } else if (i && i.code === 'invalid_type') {
-          details = 'expected type ' + (i.expected ?? 'unknown') + (i.received ? (', received ' + i.received) : '');
-        } else if (!details) {
-          details = JSON.stringify(i);
-        }
-        var received = (i && i.received !== undefined)
-          ? (' (received: ' + JSON.stringify(i.received) + ')')
-          : '';
-        return path + ': ' + details + received;
-      } catch (e) {
-        return (i && i.message) ? i.message : String(i);
-      }
-    };
-    var message: string;
-    if (!issues) message = 'Validation error';
-    else if (typeof issues === 'string') message = issues;
-    else if (issues && issues.issues && Array.isArray(issues.issues))
-      message = issues.issues.map(formatIssue).join('; ');
-    else if (Array.isArray(issues))
-      message = issues.map(formatIssue).join('; ');
-    else if (issues && issues.message)
-      message = issues.message;
-    else if (issues && issues.errors && Array.isArray(issues.errors))
-      message = issues.errors.map(formatIssue).join('; ');
-    else {
-      try { message = JSON.stringify(issues); }
-      catch { message = String(issues); }
-    }
-    super(message);
-    this.name = 'ValidationError';
-    this.issues = issues;
-  }
-  toJSON() {
-    return { type: this.type, name: this.name, message: this.message, issues: this.issues };
-  }
-}
-`;
-
-  const instanceofChecks = style === 'shape' ? '' : `
-    if (err instanceof ValidationError) return err.message;
-    if (err instanceof HttpError) return err.message;
-    if (err instanceof AppError) return err.message || String(err);`;
-
-  return `// Application error types for generated client
-
-export type ErrorType = 'app' | 'http' | 'validation';
-
-export interface AppErrorShape {
-  type: ErrorType;
-  name: string;
-  message: string;
-}
-
-export interface HttpErrorShape extends AppErrorShape {
-  status: number;
-  statusText?: string;
-  body?: any;
-}
-
-export interface ValidationErrorShape extends AppErrorShape {
-  issues: any;
-}
-${classes}
-export function formatError(err: ${formatParamType}): string {
-  try {
-    if (!err) return 'Unknown error';
-    if (typeof err === 'object' && err && (err as any).type) {
-      const t = (err as any).type;
-      if (t === 'validation') return (err as any).message || String(err);
-      if (t === 'http') return (err as any).message || String(err);
-      if (t === 'app') return (err as any).message || String(err);
-    }${instanceofChecks}
-    if (err && err.message) return err.message;
-    return String(err);
-  } catch (e) {
-    return String(err);
-  }
-}
-`;
+  return b.toString();
 }

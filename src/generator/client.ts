@@ -1,14 +1,9 @@
 import { Endpoint } from '../models';
+import { CodeBuilder } from '../codegen/builder';
+import { safeMethodName } from './utils';
 
-function toMethodName(endpoint: Endpoint) {
-  const operationId = endpoint.operationId;
-  if (!operationId) return `${endpoint.method.toLowerCase()}_${endpoint.path.replace(/\W/g, '_')}`;
-  const actionMatch = operationId.match(/(Create|Update|Delete|FindAll|FindOne|FindById|List|Get|Post|Put|Patch|Remove|Upsert|Search)$/i);
-  if (actionMatch) {
-    const action = actionMatch[1];
-    return action.charAt(0).toLowerCase() + action.slice(1);
-  }
-  return operationId.charAt(0).toLowerCase() + operationId.slice(1);
+function toMethodName(endpoint: Endpoint, usedNames: Set<string>) {
+  return safeMethodName(endpoint, usedNames)
 }
 
 function getServiceName(tags?: string[]) {
@@ -39,19 +34,21 @@ function schemaToTS(schema: any): string {
   return 'unknown';
 }
 
-function buildMethodCode(ep: Endpoint, errorTypeName: string): string[] {
-  const methodName = toMethodName(ep);
+function buildMethod(builder: CodeBuilder, ep: Endpoint, errorTypeName: string, usedNames: Set<string>) {
+  const methodName = toMethodName(ep, usedNames);
   const method = ep.method.toUpperCase();
   const lowerMethod = method.toLowerCase();
   const responseType = ep.responseRef || 'any';
-  const hasBody = ['POST', 'PUT', 'PATCH'].includes(method) && !!ep.requestBodyRef;
+  const hasBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !!ep.requestBodyRef;
   const contentType = ep.contentType || 'application/json';
 
   const pathParameters = ep.parameters?.filter((p) => p.in === 'path') ?? [];
   const queryParameters = ep.parameters?.filter((p) => p.in === 'query') ?? [];
   const hasParams = pathParameters.length > 0 || queryParameters.length > 0 || !!ep.queryParamsRef;
   const queryKeys = queryParameters.map((p) => `'${p.name}'`);
-  const pathTemplate = ep.path.replace(/\{([^}]+)\}/g, (_, name) => `\u007fparams.${name}\u007f`).replace(/\u007f([^\u007f]+)\u007f/g, '${$1}');
+  const pathTemplate = ep.path
+    .replace(/\{([^}]+)\}/g, (_, name) => `params?.${name}`)
+    .replace(/\u007f([^\u007f]+)\u007f/g, '${$1}');
 
   let paramsType = 'Record<string, unknown>';
 
@@ -63,15 +60,10 @@ function buildMethodCode(ep: Endpoint, errorTypeName: string): string[] {
   }
 
   if (ep.queryParamsRef) {
-    if (paramsType === 'Record<string, unknown>') {
-      paramsType = ep.queryParamsRef;
-    } else {
-      paramsType = `${paramsType} & ${ep.queryParamsRef}`;
-    }
+    paramsType = paramsType === 'Record<string, unknown>' ? ep.queryParamsRef : `${paramsType} & ${ep.queryParamsRef}`;
   }
 
   const bodyType = ep.requestBodyRef ? ep.requestBodyRef : 'unknown';
-
   const needsHeaders = hasParams || hasBody;
   const needsCookies = needsHeaders;
 
@@ -81,58 +73,56 @@ function buildMethodCode(ep: Endpoint, errorTypeName: string): string[] {
   if (needsHeaders) optsParts.push('headers?: Record<string, string>');
   if (needsCookies) optsParts.push('cookies?: Record<string, string>');
 
-  const hasOpts = optsParts.length > 0;
+  const paramsDecl = optsParts.length > 0 ? `opts: { ${optsParts.join('; ')} } = {}` : '';
+  const returnType = `Promise<Result<${responseType}, ${errorTypeName}>>`;
 
-  const lines: string[] = [];
-  if (hasOpts) {
-    lines.push(`  static async ${methodName}(opts?: { ${optsParts.join('; ')} }): Promise<Result<${responseType}, ${errorTypeName}>> {`);
-    const destructureParts: string[] = [];
-    if (hasParams) destructureParts.push('params = {}');
-    if (hasBody) destructureParts.push('body');
-    if (needsHeaders) destructureParts.push('headers = {}');
-    if (needsCookies) destructureParts.push('cookies = {}');
-    lines.push(`    const { ${destructureParts.join(', ')} } = opts || {};`);
-  } else {
-    lines.push(`  static async ${methodName}(): Promise<Result<${responseType}, ${errorTypeName}>> {`);
-    lines.push('    const headers: Record<string, string> = {};');
-    lines.push('    const cookies: Record<string, string> = {};');
-  }
-
-  if (queryKeys.length > 0) {
-    lines.push('    const queryParamsObj = new URLSearchParams();');
-    lines.push('    const paramsRecord = params as Record<string, unknown>;');
-    lines.push(`    [${queryKeys.join(', ')}].forEach((key) => { if (paramsRecord[key] !== undefined) queryParamsObj.append(key, String(paramsRecord[key])); });`);
-    lines.push('    const queryString = queryParamsObj.toString();');
-    lines.push(`    const url = "${pathTemplate}" + (queryString ? "?" + queryString : "");`);
-  } else {
-    lines.push(`    const url = "${pathTemplate}";`);
-  }
-
-  if (ep.queryParamsRef) {
-    lines.push(`    try { ${ep.queryParamsRef}Schema.parse(params); } catch (error: unknown) { return err(new ValidationError(formatError(error))); }`);
-  }
-
-  if (ep.requestBodyRef) {
-    lines.push(`    if (body) { try { ${ep.requestBodyRef}Schema.parse(body); } catch (error: unknown) { return err(new ValidationError(formatError(error))); } }`);
-  }
-
-  if (hasBody) {
-    if (contentType === 'multipart/form-data') {
-      lines.push('    const requestBody = body as any;');
-    } else if (contentType === 'application/x-www-form-urlencoded') {
-      lines.push('    const requestBody = body ? new URLSearchParams(body as Record<string, string>).toString() : undefined;');
+  builder.method(methodName, { static: true, async: true, params: paramsDecl, returns: returnType }, (m) => {
+    if (optsParts.length > 0) {
+      const destructure: string[] = [];
+      if (hasParams) destructure.push('params = {}');
+      if (hasBody) destructure.push('body');
+      if (needsHeaders) destructure.push('headers = {}');
+      if (needsCookies) destructure.push('cookies = {}');
+      m.line(`const { ${destructure.join(', ')} } = opts;`);
     } else {
-      lines.push('    const requestBody = body ? JSON.stringify(body) : undefined;');
+      m.line('const headers: Record<string, string> = {};');
+      m.line('const cookies: Record<string, string> = {};');
     }
-  } else {
-    lines.push('    const requestBody = undefined;');
-  }
 
-  lines.push(`    const mergedHeaders: Record<string, string> = { 'Content-Type': '${contentType}', ...headers };`);
-  lines.push("    if (cookies && Object.keys(cookies).length > 0) { mergedHeaders['Cookie'] = Object.entries(cookies).map(([k, v]) => k + '=' + v).join('; '); }");
-  lines.push(`    return await httpAdapter.request<${responseType}>(url, { method: '${lowerMethod}', headers: mergedHeaders, body: requestBody });`);
-  lines.push('  }');
-  return lines;
+    if (queryKeys.length > 0) {
+      m.line('const queryParamsObj = new URLSearchParams();');
+      m.line('const paramsRecord = params as Record<string, unknown>;');
+      m.line(`[${queryKeys.join(', ')}].forEach((key) => { if (paramsRecord[key] !== undefined) queryParamsObj.append(key, String(paramsRecord[key])); });`);
+      m.line('const queryString = queryParamsObj.toString();');
+      m.line(`const url = \`${pathTemplate}\` + (queryString ? "?" + queryString : "");`);
+    } else {
+      m.line(`const url = \`${pathTemplate}\`;`);
+    }
+
+    if (ep.queryParamsRef?.trim()) {
+      m.line(`try { ${ep.queryParamsRef}Schema.parse(params); } catch (error: unknown) { return err(new ValidationError(formatError(error))); }`);
+    }
+
+    if (hasBody && ep.requestBodyRef?.trim()) {
+      m.line(`if (body) { try { ${ep.requestBodyRef}Schema.parse(body); } catch (error: unknown) { return err(new ValidationError(formatError(error))); } }`);
+    }
+
+    if (hasBody) {
+      if (contentType === 'multipart/form-data') {
+        m.line('const requestBody = body as any;');
+      } else if (contentType === 'application/x-www-form-urlencoded') {
+        m.line('const requestBody = body ? new URLSearchParams(body as Record<string, string>).toString() : undefined;');
+      } else {
+        m.line('const requestBody = body ? JSON.stringify(body) : undefined;');
+      }
+    } else {
+      m.line('const requestBody = undefined;');
+    }
+
+    m.line(`const mergedHeaders: Record<string, string> = { 'Content-Type': '${contentType}', ...headers };`);
+    m.line("if (cookies && Object.keys(cookies).length > 0) { mergedHeaders['Cookie'] = Object.entries(cookies).map(([k, v]) => k + '=' + v).join('; '); }");
+    m.line(`return await httpAdapter.request<${responseType}>(url, { method: '${lowerMethod}', headers: mergedHeaders, body: requestBody });`);
+  });
 }
 
 export function generateClient(endpoints: Endpoint[], options: { errorStyle?: 'class' | 'shape' | 'both' } = {}): Record<string, string> {
@@ -182,10 +172,10 @@ export function generateClient(endpoints: Endpoint[], options: { errorStyle?: 'c
   files['client.ts'] = rootLines.join('\n');
 
   services.forEach((eps, serviceName) => {
-    const serviceLines: string[] = [];
-    serviceLines.push("import { httpAdapter } from '../http-adapter';");
-    serviceLines.push("import { ok, err, Result } from 'neverthrow';");
-    serviceLines.push("import { AppError, ValidationError, HttpError, AppErrorShape, ValidationErrorShape, HttpErrorShape, formatError } from '../errors';");
+    const serviceBuilder = new CodeBuilder();
+    serviceBuilder.line("import { httpAdapter } from '../http-adapter';");
+    serviceBuilder.line("import { ok, err, Result } from 'neverthrow';");
+    serviceBuilder.line("import { AppError, ValidationError, HttpError, AppErrorShape, ValidationErrorShape, HttpErrorShape, formatError } from '../errors';");
 
     const serviceTypeImports = new Set<string>();
     const serviceValidatorImports = new Set<string>();
@@ -202,72 +192,29 @@ export function generateClient(endpoints: Endpoint[], options: { errorStyle?: 'c
       }
     });
 
-    // Import only needed types/schema from per-file type outputs
     const serviceImports = new Map<string, Set<string>>();
-
     const addImport = (name: string) => {
       const fileName = name.endsWith('Schema') ? name.replace(/Schema$/, '') : name;
-      if (!serviceImports.has(fileName)) {
-        serviceImports.set(fileName, new Set());
-      }
+      if (!serviceImports.has(fileName)) serviceImports.set(fileName, new Set());
       serviceImports.get(fileName)!.add(name);
     };
 
-    serviceTypeImports.forEach((importName) => addImport(importName));
-    serviceValidatorImports.forEach((importName) => addImport(importName));
+    serviceTypeImports.forEach(addImport);
+    serviceValidatorImports.forEach(addImport);
 
-    for (const [fileName, names] of Array.from(serviceImports.entries()).sort()) {
-      serviceLines.push(`import { ${Array.from(names).sort().join(', ')} } from '../types/${fileName}';`);
-    }
+    Array.from(serviceImports.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .forEach(([fileName, names]) => {
+        serviceBuilder.line(`import { ${Array.from(names).sort().join(', ')} } from '../types/${fileName}';`);
+      });
 
-    serviceLines.push(`export class ${serviceName} {`);
-    eps.forEach((ep) => serviceLines.push(...buildMethodCode(ep, errorTypeName)));
-    serviceLines.push('}');
+    serviceBuilder.classBlock(serviceName, (cls) => {
+      const methodNames = new Set<string>();
+      eps.forEach((ep) => buildMethod(cls, ep, errorTypeName, methodNames));
+    });
 
-    files[`services/${serviceName}.ts`] = serviceLines.join('\n');
+    files[`services/${serviceName}.ts`] = serviceBuilder.toString();
   });
 
   return files;
-
-//       const path = rawPath.replace(/\{([^}]+)\}/g, (_, name) => `params.${name}`).replace(/\u007f([^\u007f]+)\u007f/g, '${$1}');
-//       if (queryParams.length > 0) {
-//         const keys = queryParams.map((p) => `'${p.name}'`).join(', ');
-//         lines.push(`    const queryParamsObj = new URLSearchParams();`);
-//         lines.push(`    const paramsRecord = params as Record<string, unknown>;`);
-//         lines.push(`    [${keys}].forEach((key) => { if (paramsRecord[key] !== undefined) queryParamsObj.append(key, String(paramsRecord[key])); });`);
-//         lines.push(`    const queryString = queryParamsObj.toString();`);
-//         lines.push(`    const url = "${path}" + (queryString ? "?" + queryString : "");`);
-//       } else {
-//         lines.push(`    const url = "${path}";`);
-//       }
-
-//       if (ep.queryParamsRef) {
-//         lines.push(`    try { ${ep.queryParamsRef}Schema.parse(params); } catch (error: unknown) { return err(new ValidationError(formatError(error))); }`);
-//       }
-//       if (ep.requestBodyRef) {
-//         lines.push(`    if (body) { try { ${ep.requestBodyRef}Schema.parse(body); } catch (error: unknown) { return err(new ValidationError(formatError(error))); } }`);
-//       }
-
-//       if (hasBody) {
-//         if (contentType === 'multipart/form-data') {
-//           lines.push(`    const requestBody = body as any;`);
-//         } else if (contentType === 'application/x-www-form-urlencoded') {
-//           lines.push(`    const requestBody = body ? new URLSearchParams(body as Record<string, string>).toString() : undefined;`);
-//         } else {
-//           lines.push(`    const requestBody = body ? JSON.stringify(body) : undefined;`);
-//         }
-//       } else {
-//         lines.push(`    const requestBody = undefined;`);
-//       }
-
-//       lines.push(`    const mergedHeaders: Record<string, string> = { 'Content-Type': '${contentType}', ...headers };`);
-//       lines.push("    if (cookies && Object.keys(cookies).length > 0) { mergedHeaders['Cookie'] = Object.entries(cookies).map(([k, v]) => k + '=' + v).join('; '); }");
-//       lines.push(`    return await httpAdapter.request<${responseType}>(url, { method: '${method}', headers: mergedHeaders, body: requestBody });`);
-//       lines.push(`  }`);
-//     });
-
-//     lines.push('}');
-//   });
-
-//   return lines.join('\n');
 }

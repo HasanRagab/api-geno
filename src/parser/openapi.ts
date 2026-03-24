@@ -1,190 +1,11 @@
 import fs from "fs";
 import { OpenAPIModel, Endpoint, Parameter, Schema, Response } from "../models";
+import { isObject, extractSchemaRef, normalizeSchema, normalizeParamObject, toParameterList, createQuerySchemaReference, selectRequestContentType } from "./utils";
 
 type RawObject = Record<string, unknown>;
 
-type OpenAPIParameterIn = "query" | "path" | "header" | "cookie" | "body";
-
-interface OpenAPIParameter {
-  name: string;
-  in: OpenAPIParameterIn;
-  required?: boolean;
-  schema?: unknown;
-  type?: string;
-  format?: string;
-  items?: unknown;
-  enum?: unknown[];
-  default?: unknown;
-  description?: string;
-  minLength?: number;
-  maxLength?: number;
-  pattern?: string;
-  minimum?: number;
-  maximum?: number;
-}
-
 interface OpenAPIContentSchema {
   schema?: unknown;
-}
-
-function isObject(value: unknown): value is RawObject {
-  return value !== null && typeof value === "object";
-}
-
-function extractSchemaRef(schema: unknown): string | undefined {
-  if (isObject(schema) && typeof schema.$ref === "string") {
-    return schema.$ref.split("/").pop();
-  }
-  return undefined;
-}
-
-function normalizeSchema(schema: unknown): Schema {
-  if (!isObject(schema)) {
-    return { type: "object" };
-  }
-
-  if (typeof schema.$ref === "string") {
-    const ref = schema.$ref;
-    // Normalize Swagger 2.0 definitions to OpenAPI 3 component refs where possible
-    const normalizedRef = ref.startsWith("#/definitions/")
-      ? `#/components/schemas/${ref.slice("#/definitions/".length)}`
-      : ref;
-
-    return { $ref: normalizedRef as `#/components/schemas/${string}` };
-  }
-
-  const normalized: Schema = {
-    type: typeof schema.type === "string" ? (schema.type as Schema["type"]) : "object",
-  };
-
-  if (isObject(schema.properties)) {
-    normalized.properties = {};
-    for (const [key, prop] of Object.entries(schema.properties)) {
-      normalized.properties[key] = normalizeSchema(prop);
-    }
-  }
-
-  if (schema.items !== undefined) {
-    normalized.items = normalizeSchema(schema.items);
-  }
-
-  if (Array.isArray(schema.required)) {
-    normalized.required = schema.required.filter((x) => typeof x === "string") as string[];
-  }
-
-  if (Array.isArray(schema.allOf)) {
-    normalized.allOf = schema.allOf.map((sub) => normalizeSchema(sub));
-  }
-
-  if (Array.isArray(schema.oneOf)) {
-    normalized.oneOf = schema.oneOf.map((sub) => normalizeSchema(sub));
-  }
-
-  if (Array.isArray(schema.anyOf)) {
-    normalized.anyOf = schema.anyOf.map((sub) => normalizeSchema(sub));
-  }
-
-  if (typeof schema.nullable === "boolean") {
-    normalized.nullable = schema.nullable;
-  }
-
-  if (typeof schema.minLength === "number") {
-    normalized.minLength = schema.minLength;
-  }
-
-  if (typeof schema.maxLength === "number") {
-    normalized.maxLength = schema.maxLength;
-  }
-
-  if (typeof schema.pattern === "string") {
-    normalized.pattern = schema.pattern;
-  }
-
-  if (typeof schema.minimum === "number") {
-    normalized.minimum = schema.minimum;
-  }
-
-  if (typeof schema.maximum === "number") {
-    normalized.maximum = schema.maximum;
-  }
-
-  if (typeof schema.exclusiveMinimum === "number") {
-    (normalized as Schema & { exclusiveMinimum?: number }).exclusiveMinimum = schema.exclusiveMinimum;
-  }
-
-  if (typeof schema.exclusiveMaximum === "number") {
-    (normalized as Schema & { exclusiveMaximum?: number }).exclusiveMaximum = schema.exclusiveMaximum;
-  }
-
-  if (Array.isArray(schema.enum)) {
-    normalized.enum = schema.enum as (string | number | boolean)[];
-  }
-
-  if (schema.default !== undefined) {
-    normalized.default = schema.default;
-  }
-
-  if (typeof schema.description === "string") {
-    normalized.description = schema.description;
-  }
-
-  return normalized;
-}
-
-function normalizeParamObject(p: OpenAPIParameter): Parameter {
-  let schema: unknown = p.schema;
-
-  if (schema === undefined || schema === null) {
-    if (p.type) {
-      schema = {
-        type: p.type,
-        format: p.format,
-        items: p.items,
-        enum: p.enum,
-        default: p.default,
-        description: p.description,
-        minLength: p.minLength,
-        maxLength: p.maxLength,
-        pattern: p.pattern,
-        minimum: p.minimum,
-        maximum: p.maximum,
-      };
-    } else {
-      schema = { type: "object" };
-    }
-  }
-
-  return {
-    name: p.name,
-    in: p.in as Parameter["in"],
-    required: p.required || false,
-    schema: normalizeSchema(schema),
-  };
-}
-
-function toParameterList(value: unknown): OpenAPIParameter[] {
-  if (!Array.isArray(value)) return [];
-
-  return value
-    .filter(isObject)
-    .map((raw) => ({
-      name: String(raw.name),
-      in: String(raw.in) as OpenAPIParameterIn,
-      required: typeof raw.required === "boolean" ? raw.required : undefined,
-      schema: raw.schema,
-      type: typeof raw.type === "string" ? raw.type : undefined,
-      format: typeof raw.format === "string" ? raw.format : undefined,
-      items: raw.items,
-      enum: Array.isArray(raw.enum) ? raw.enum : undefined,
-      default: raw.default,
-      description: typeof raw.description === "string" ? raw.description : undefined,
-      minLength: typeof raw.minLength === "number" ? raw.minLength : undefined,
-      maxLength: typeof raw.maxLength === "number" ? raw.maxLength : undefined,
-      pattern: typeof raw.pattern === "string" ? raw.pattern : undefined,
-      minimum: typeof raw.minimum === "number" ? raw.minimum : undefined,
-      maximum: typeof raw.maximum === "number" ? raw.maximum : undefined,
-    }))
-    .filter((param) => param.name && param.in);
 }
 
 function parseV3(spec: unknown): OpenAPIModel {
@@ -201,9 +22,7 @@ function parseV3(spec: unknown): OpenAPIModel {
       const parameters: Parameter[] = toParameterList(d.parameters).map(normalizeParamObject);
 
       const requestBodyContent = isObject(d.requestBody) && isObject(d.requestBody.content) ? d.requestBody.content as Record<string, OpenAPIContentSchema> : {};
-      const contentTypes = Object.keys(requestBodyContent);
-      const preferredOrder = ["application/json", "application/x-www-form-urlencoded", "multipart/form-data"];
-      const contentType = preferredOrder.find((ct) => contentTypes.includes(ct)) || contentTypes[0];
+      const contentType = selectRequestContentType(requestBodyContent);
 
       const requestBody = contentType ? normalizeSchema(requestBodyContent[contentType]?.schema) : undefined;
       const requestBodyRef = contentType ? extractSchemaRef(requestBodyContent[contentType]?.schema) : undefined;
@@ -243,26 +62,7 @@ function parseV3(spec: unknown): OpenAPIModel {
     normalizedSchemas[name] = normalizeSchema(schema);
   }
 
-  endpoints.forEach((ep) => {
-    if (!ep.queryParamsRef) return;
-
-    const queryParams = ep.parameters?.filter((p) => p.in === "query") || [];
-    if (queryParams.length === 0) return;
-
-    const queryParamProperties: Record<string, Schema> = {};
-    const required: string[] = [];
-
-    queryParams.forEach((param) => {
-      queryParamProperties[param.name] = param.schema;
-      if (param.required) required.push(param.name);
-    });
-
-    normalizedSchemas[ep.queryParamsRef] = {
-      type: "object",
-      properties: queryParamProperties,
-      required: required.length > 0 ? required : undefined,
-    };
-  });
+  createQuerySchemaReference(endpoints, normalizedSchemas)
 
   return { endpoints, schemas: normalizedSchemas };
 }
@@ -326,26 +126,7 @@ function parseV2(spec: unknown): OpenAPIModel {
     normalizedSchemas[name] = normalizeSchema(schema);
   }
 
-  endpoints.forEach((ep) => {
-    if (!ep.queryParamsRef) return;
-
-    const queryParams = ep.parameters?.filter((p) => p.in === "query") || [];
-    if (queryParams.length === 0) return;
-
-    const queryParamProperties: Record<string, Schema> = {};
-    const required: string[] = [];
-
-    queryParams.forEach((param) => {
-      queryParamProperties[param.name] = param.schema;
-      if (param.required) required.push(param.name);
-    });
-
-    normalizedSchemas[ep.queryParamsRef] = {
-      type: "object",
-      properties: queryParamProperties,
-      required: required.length > 0 ? required : undefined,
-    };
-  });
+  createQuerySchemaReference(endpoints, normalizedSchemas)
 
   return { endpoints, schemas: normalizedSchemas };
 }

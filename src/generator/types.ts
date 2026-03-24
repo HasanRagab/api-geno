@@ -1,5 +1,6 @@
 import { Schema } from '../models';
 import { buildZodSchema } from './validation';
+import { CodeBuilder } from '../codegen/builder';
 
 function collectSchemaRefs(schema: Schema, refs = new Set<string>()): Set<string> {
   if (!schema) return refs;
@@ -35,30 +36,26 @@ function collectSchemaRefs(schema: Schema, refs = new Set<string>()): Set<string
 export function generateTypes(schemas: Record<string, Schema>): Record<string, string> {
   const files: Record<string, string> = {};
 
-  // create per-schema file with schema + type
+  // create per-schema file with schema + type using CodeBuilder
   Object.entries(schemas).forEach(([name, schema]) => {
     const refs = Array.from(collectSchemaRefs(schema)).filter((ref) => ref !== name);
-    const imports = refs
-      .map((ref) => `import { ${ref}Schema, ${ref} } from './${ref}';`)
-      .join('\n');
+    const builder = new CodeBuilder();
 
-    const lines: string[] = ["import { z } from 'zod';"];
+    builder.import(['z'], 'zod');
 
-    if (imports) lines.push(imports);
+    refs.forEach((ref) => builder.line(`import { ${ref}Schema, ${ref} } from './${ref}';`));
+    builder.blank();
+    builder.line(buildZodSchema(name, schema));
+    builder.line(`export type ${name} = z.infer<typeof ${name}Schema>;`);
 
-    lines.push('');
-    lines.push(buildZodSchema(name, schema));
-    lines.push(`export type ${name} = z.infer<typeof ${name}Schema>;`);
-
-    files[`types/${name}.ts`] = lines.join('\n');
+    files[`types/${name}.ts`] = builder.toString();
   });
 
   // root aggregator
-  const rootLines = Object.keys(schemas)
-    .map((name) => `export * from './types/${name}';`)
-    .join('\n');
+  const rootBuilder = new CodeBuilder();
+  Object.keys(schemas).forEach((name) => rootBuilder.line(`export * from './types/${name}';`));
 
-  files['types.ts'] = rootLines;
+  files['types.ts'] = rootBuilder.toString();
 
   return files;
 }
