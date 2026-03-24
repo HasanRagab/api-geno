@@ -1,58 +1,58 @@
 {
-  "swagger": "2.0",
-  "info": {
-    "title": "Test API",
-    "version": "1.0.0"
-  },
-  "host": "api.example.com",
-  "basePath": "/v1",
-  "schemes": ["https"],
-  "paths": {
-    "/users/{id}": {
-      "get": {
-        "operationId": "getUser",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "includePosts",
-            "in": "query",
-            "type": "boolean"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "schema": {
-              "$ref": "#/definitions/User"
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "message": { "type": "string" }
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-  "definitions": {
-    "User": {
-      "type": "object",
-      "required": ["id", "name"],
-      "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "age": { "type": "integer" }
-      }
-    }
-  }
+	"swagger": "2.0",
+	"info": {
+		"title": "Test API",
+		"version": "1.0.0"
+	},
+	"host": "api.example.com",
+	"basePath": "/v1",
+	"schemes": ["https"],
+	"paths": {
+		"/users/{id}": {
+			"get": {
+				"operationId": "getUser",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"type": "string"
+					},
+					{
+						"name": "includePosts",
+						"in": "query",
+						"type": "boolean"
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"schema": {
+							"$ref": "#/definitions/User"
+						}
+					},
+					"404": {
+						"description": "Not found",
+						"schema": {
+							"type": "object",
+							"properties": {
+								"message": { "type": "string" }
+							}
+						}
+					}
+				}
+			}
+		}
+	},
+	"definitions": {
+		"User": {
+			"type": "object",
+			"required": ["id", "name"],
+			"properties": {
+				"id": { "type": "string" },
+				"name": { "type": "string" },
+				"age": { "type": "integer" }
+			}
+		}
+	}
 }

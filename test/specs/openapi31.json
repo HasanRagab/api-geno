@@ -1,60 +1,58 @@
 {
-  "openapi": "3.1.0",
-  "info": {
-    "title": "Test API 3.1",
-    "version": "1.0.0"
-  },
-  "servers": [
-    { "url": "https://api.example.com/v2" }
-  ],
-  "paths": {
-    "/products": {
-      "post": {
-        "operationId": "createProduct",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/ProductInput" }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/Product" }
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-  "components": {
-    "schemas": {
-      "ProductInput": {
-        "type": "object",
-        "required": ["name", "price"],
-        "properties": {
-          "name": { "type": "string" },
-          "price": { "type": "number" },
-          "discount": {
-            "type": ["number", "null"]
-          }
-        }
-      },
-      "Product": {
-        "allOf": [
-          { "$ref": "#/components/schemas/ProductInput" },
-          {
-            "type": "object",
-            "properties": {
-              "id": { "type": "string" }
-            }
-          }
-        ]
-      }
-    }
-  }
+	"openapi": "3.1.0",
+	"info": {
+		"title": "Test API 3.1",
+		"version": "1.0.0"
+	},
+	"servers": [{ "url": "https://api.example.com/v2" }],
+	"paths": {
+		"/products": {
+			"post": {
+				"operationId": "createProduct",
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": { "$ref": "#/components/schemas/ProductInput" }
+						}
+					}
+				},
+				"responses": {
+					"201": {
+						"description": "Created",
+						"content": {
+							"application/json": {
+								"schema": { "$ref": "#/components/schemas/Product" }
+							}
+						}
+					}
+				}
+			}
+		}
+	},
+	"components": {
+		"schemas": {
+			"ProductInput": {
+				"type": "object",
+				"required": ["name", "price"],
+				"properties": {
+					"name": { "type": "string" },
+					"price": { "type": "number" },
+					"discount": {
+						"type": ["number", "null"]
+					}
+				}
+			},
+			"Product": {
+				"allOf": [
+					{ "$ref": "#/components/schemas/ProductInput" },
+					{
+						"type": "object",
+						"properties": {
+							"id": { "type": "string" }
+						}
+					}
+				]
+			}
+		}
+	}
 }
