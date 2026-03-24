@@ -87,10 +87,28 @@ jobs:
       # -------------------------------
       - name: Create GitHub Release
         if: github.event_name == 'push'
+        id: release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: "v${{ steps.version.outputs.new_version }}"
           name: "Release v${{ steps.version.outputs.new_version }}"
-          files: release/*
+          files: release/api-geno   # only the binary, no wildcards
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Remove source code archives
+        if: github.event_name == 'push'
+        run: |
+          gh release edit "v${{ steps.version.outputs.new_version }}" \
+            --repo ${{ github.repository }} \
+            --notes ""
+          # Delete the auto-attached source zips
+          gh api \
+            --method GET \
+            repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.new_version }} \
+            --jq '.assets[] | select(.name | endswith(".zip") or endswith(".tar.gz")) | .id' | \
+          xargs -I{} gh api --method DELETE \
+            repos/${{ github.repository }}/releases/assets/{}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
