@@ -1,5 +1,3 @@
-import ts, { DiagnosticMessage } from "typescript";
-
 /**
  * A named import/export specifier.
  *
