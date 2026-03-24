@@ -8,6 +8,11 @@ const program = new Command();
 
 program
 	.command("generate")
+	.description("Generate TypeScript API client code from an OpenAPI JSON file.")
+	.addHelpText(
+		"after",
+		"\nExamples:\n  api-geno generate --input api.json --output generated --error-style both --http-adapter fetch\n\nOptions:\n  --output-format ts    Output format, currently only 'ts' is supported.\n  --http-adapter       Select axios or fetch implementation (default axios).\n  --skip-generated-outputs  Print generated code to console instead of writing files.\n  --force              Regenerate even when input+options hash is unchanged.\n",
+	)
 	.requiredOption("-i, --input <file>", "OpenAPI JSON file")
 	.requiredOption("-o, --output <dir>", "Output directory")
 	.option(
