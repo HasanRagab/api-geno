@@ -1,198 +1,372 @@
 import fs from "fs";
-import { OpenAPIModel, Endpoint, Parameter, Schema } from "../models";
+import { OpenAPIModel, Endpoint, Parameter, Schema, Response } from "../models";
 
-function extractSchemaRef(schema: any): string | undefined {
-  if (schema?.$ref) {
-    // Extract schema name from "#/components/schemas/CreateCourseDto"
+type RawObject = Record<string, unknown>;
+
+type OpenAPIParameterIn = "query" | "path" | "header" | "cookie" | "body";
+
+interface OpenAPIParameter {
+  name: string;
+  in: OpenAPIParameterIn;
+  required?: boolean;
+  schema?: unknown;
+  type?: string;
+  format?: string;
+  items?: unknown;
+  enum?: unknown[];
+  default?: unknown;
+  description?: string;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  minimum?: number;
+  maximum?: number;
+}
+
+interface OpenAPIContentSchema {
+  schema?: unknown;
+}
+
+function isObject(value: unknown): value is RawObject {
+  return value !== null && typeof value === "object";
+}
+
+function extractSchemaRef(schema: unknown): string | undefined {
+  if (isObject(schema) && typeof schema.$ref === "string") {
     return schema.$ref.split("/").pop();
   }
   return undefined;
 }
 
-function normalizeSchema(schema: any): Schema {
-  if (!schema) {
+function normalizeSchema(schema: unknown): Schema {
+  if (!isObject(schema)) {
     return { type: "object" };
   }
 
-  if (schema.$ref) {
-    return { $ref: schema.$ref };
+  if (typeof schema.$ref === "string") {
+    const ref = schema.$ref;
+    // Normalize Swagger 2.0 definitions to OpenAPI 3 component refs where possible
+    const normalizedRef = ref.startsWith("#/definitions/")
+      ? `#/components/schemas/${ref.slice("#/definitions/".length)}`
+      : ref;
+
+    return { $ref: normalizedRef as `#/components/schemas/${string}` };
   }
 
   const normalized: Schema = {
-    type: schema.type || "object",
+    type: typeof schema.type === "string" ? (schema.type as Schema["type"]) : "object",
   };
 
-  // Copy array properties
-  if (schema.properties) {
+  if (isObject(schema.properties)) {
     normalized.properties = {};
     for (const [key, prop] of Object.entries(schema.properties)) {
       normalized.properties[key] = normalizeSchema(prop);
     }
   }
 
-  if (schema.items) {
+  if (schema.items !== undefined) {
     normalized.items = normalizeSchema(schema.items);
   }
 
-  if (schema.required) {
-    normalized.required = schema.required;
+  if (Array.isArray(schema.required)) {
+    normalized.required = schema.required.filter((x) => typeof x === "string") as string[];
   }
 
-  if (schema.allOf) {
-    normalized.allOf = schema.allOf.map((sub: any) => normalizeSchema(sub));
+  if (Array.isArray(schema.allOf)) {
+    normalized.allOf = schema.allOf.map((sub) => normalizeSchema(sub));
   }
 
-  if (schema.oneOf) {
-    normalized.oneOf = schema.oneOf.map((sub: any) => normalizeSchema(sub));
+  if (Array.isArray(schema.oneOf)) {
+    normalized.oneOf = schema.oneOf.map((sub) => normalizeSchema(sub));
   }
 
-  if (schema.anyOf) {
-    normalized.anyOf = schema.anyOf.map((sub: any) => normalizeSchema(sub));
+  if (Array.isArray(schema.anyOf)) {
+    normalized.anyOf = schema.anyOf.map((sub) => normalizeSchema(sub));
   }
 
-  if (schema.nullable !== undefined) {
+  if (typeof schema.nullable === "boolean") {
     normalized.nullable = schema.nullable;
   }
 
-  // String constraints
-  if (schema.minLength !== undefined) {
+  if (typeof schema.minLength === "number") {
     normalized.minLength = schema.minLength;
   }
-  if (schema.maxLength !== undefined) {
+
+  if (typeof schema.maxLength === "number") {
     normalized.maxLength = schema.maxLength;
   }
-  if (schema.pattern !== undefined) {
+
+  if (typeof schema.pattern === "string") {
     normalized.pattern = schema.pattern;
   }
 
-  // Number constraints
-  if (schema.minimum !== undefined) {
+  if (typeof schema.minimum === "number") {
     normalized.minimum = schema.minimum;
   }
-  if (schema.maximum !== undefined) {
+
+  if (typeof schema.maximum === "number") {
     normalized.maximum = schema.maximum;
   }
-  if (schema.exclusiveMinimum !== undefined) {
-    (normalized as any).exclusiveMinimum = schema.exclusiveMinimum;
-  }
-  if (schema.exclusiveMaximum !== undefined) {
-    (normalized as any).exclusiveMaximum = schema.exclusiveMaximum;
+
+  if (typeof schema.exclusiveMinimum === "number") {
+    (normalized as Schema & { exclusiveMinimum?: number }).exclusiveMinimum = schema.exclusiveMinimum;
   }
 
-  // Enum values
-  if (schema.enum) {
-    normalized.enum = schema.enum;
+  if (typeof schema.exclusiveMaximum === "number") {
+    (normalized as Schema & { exclusiveMaximum?: number }).exclusiveMaximum = schema.exclusiveMaximum;
   }
 
-  // Default value
+  if (Array.isArray(schema.enum)) {
+    normalized.enum = schema.enum as (string | number | boolean)[];
+  }
+
   if (schema.default !== undefined) {
     normalized.default = schema.default;
   }
 
-  // Description
-  if (schema.description) {
+  if (typeof schema.description === "string") {
     normalized.description = schema.description;
   }
 
   return normalized;
 }
 
-export function parseOpenAPI(filePath: string): OpenAPIModel {
-  const raw = fs.readFileSync(filePath, "utf-8");
-  const spec = JSON.parse(raw);
+function normalizeParamObject(p: OpenAPIParameter): Parameter {
+  let schema: unknown = p.schema;
+
+  if (schema === undefined || schema === null) {
+    if (p.type) {
+      schema = {
+        type: p.type,
+        format: p.format,
+        items: p.items,
+        enum: p.enum,
+        default: p.default,
+        description: p.description,
+        minLength: p.minLength,
+        maxLength: p.maxLength,
+        pattern: p.pattern,
+        minimum: p.minimum,
+        maximum: p.maximum,
+      };
+    } else {
+      schema = { type: "object" };
+    }
+  }
+
+  return {
+    name: p.name,
+    in: p.in as Parameter["in"],
+    required: p.required || false,
+    schema: normalizeSchema(schema),
+  };
+}
+
+function toParameterList(value: unknown): OpenAPIParameter[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter(isObject)
+    .map((raw) => ({
+      name: String(raw.name),
+      in: String(raw.in) as OpenAPIParameterIn,
+      required: typeof raw.required === "boolean" ? raw.required : undefined,
+      schema: raw.schema,
+      type: typeof raw.type === "string" ? raw.type : undefined,
+      format: typeof raw.format === "string" ? raw.format : undefined,
+      items: raw.items,
+      enum: Array.isArray(raw.enum) ? raw.enum : undefined,
+      default: raw.default,
+      description: typeof raw.description === "string" ? raw.description : undefined,
+      minLength: typeof raw.minLength === "number" ? raw.minLength : undefined,
+      maxLength: typeof raw.maxLength === "number" ? raw.maxLength : undefined,
+      pattern: typeof raw.pattern === "string" ? raw.pattern : undefined,
+      minimum: typeof raw.minimum === "number" ? raw.minimum : undefined,
+      maximum: typeof raw.maximum === "number" ? raw.maximum : undefined,
+    }))
+    .filter((param) => param.name && param.in);
+}
+
+function parseV3(spec: unknown): OpenAPIModel {
+  if (!isObject(spec)) return { endpoints: [], schemas: {} };
 
   const endpoints: Endpoint[] = [];
+  const paths = isObject(spec.paths) ? spec.paths : {};
 
-  for (const [path, methods] of Object.entries(spec.paths)) {
-    for (const [method, details] of Object.entries(methods as any)) {
-      const d = details as any;
-      const parameters: Parameter[] = (d.parameters || []).map((p: any) => ({
-        name: p.name,
-        in: p.in,
-        required: p.required || false,
-        schema: normalizeSchema(p.schema),
-      }));
+  for (const [path, methodsRaw] of Object.entries(paths)) {
+    const methods = isObject(methodsRaw) ? methodsRaw : {};
 
-      // Extract request body and content type
-      let requestBody;
-      let contentType;
-      const requestBodyContent = d.requestBody?.content || {};
+    for (const [method, detailsRaw] of Object.entries(methods)) {
+      const d = isObject(detailsRaw) ? detailsRaw : {};
+      const parameters: Parameter[] = toParameterList(d.parameters).map(normalizeParamObject);
+
+      const requestBodyContent = isObject(d.requestBody) && isObject(d.requestBody.content) ? d.requestBody.content as Record<string, OpenAPIContentSchema> : {};
       const contentTypes = Object.keys(requestBodyContent);
-      
-      // Prefer order: JSON > form-urlencoded > form-data > other
-      const preferredOrder = [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
-      ];
-      
-      contentType = preferredOrder.find(ct => contentTypes.includes(ct)) || contentTypes[0];
-      if (contentType) {
-        requestBody = normalizeSchema(requestBodyContent[contentType].schema);
-      }
+      const preferredOrder = ["application/json", "application/x-www-form-urlencoded", "multipart/form-data"];
+      const contentType = preferredOrder.find((ct) => contentTypes.includes(ct)) || contentTypes[0];
 
-      const requestBodyRef = extractSchemaRef(requestBodyContent[contentType || "application/json"]?.schema);
+      const requestBody = contentType ? normalizeSchema(requestBodyContent[contentType]?.schema) : undefined;
+      const requestBodyRef = contentType ? extractSchemaRef(requestBodyContent[contentType]?.schema) : undefined;
 
-      // Find the success response (200 or 201)
-      const successResponse = d.responses?.["201"] || d.responses?.["200"];
-      const responseSchema = successResponse?.content?.["application/json"]?.schema;
+      const successResponse = (isObject(d.responses) && (isObject(d.responses["201"]) || isObject(d.responses["200"])))
+        ? (d.responses["201"] || d.responses["200"])
+        : undefined;
+
+      const responseSchema = isObject(successResponse) && isObject((successResponse as RawObject).content)
+        ? ((successResponse as RawObject).content as Record<string, OpenAPIContentSchema>)["application/json"]?.schema
+        : undefined;
+
       const responseRef = extractSchemaRef(responseSchema);
-
-      // Extract query parameters and create a schema for them
-      const queryParams = parameters.filter((p: any) => p.in === "query");
-      let queryParamsRef: string | undefined;
-      
-      if (queryParams.length > 0) {
-        // Create a reference name for query params schema
-        queryParamsRef = `${d.operationId || `${method}_${path.replace(/\W/g, "_")}`}QueryParams`;
-      }
+      const queryParams = parameters.filter((p) => p.in === "query");
+      const queryParamsRef = queryParams.length > 0 ? `${String(d.operationId || `${method}_${path.replace(/\W/g, "_")}`)}QueryParams` : undefined;
 
       endpoints.push({
         path,
-        method: method.toUpperCase() as Endpoint['method'],
-        operationId: d.operationId || `${method}_${path.replace(/\W/g, "_")}`,
-        tags: d.tags || [],
+        method: method.toUpperCase() as Endpoint["method"],
+        operationId: String(d.operationId || `${method}_${path.replace(/\W/g, "_")}`),
+        tags: Array.isArray(d.tags) ? d.tags.filter((tag) => typeof tag === "string") as string[] : [],
         parameters,
         requestBody,
         requestBodyRef,
         queryParamsRef,
         contentType: contentType || "application/json",
-        responses: d.responses || {},
+        responses: isObject(d.responses) ? d.responses as Record<string, Response> : {},
         responseRef,
       });
     }
   }
 
-  const schemas = spec.components?.schemas || {};
+  const schemaSource = isObject(spec.components) && isObject(spec.components.schemas) ? spec.components.schemas : {};
   const normalizedSchemas: Record<string, Schema> = {};
-  
-  for (const [name, schema] of Object.entries(schemas)) {
+
+  for (const [name, schema] of Object.entries(schemaSource)) {
     normalizedSchemas[name] = normalizeSchema(schema);
   }
 
-  // Generate schemas for query parameters
-  endpoints.forEach(ep => {
-    if (ep.queryParamsRef) {
-      const queryParams = ep.parameters?.filter((p: any) => p.in === "query") || [];
-      if (queryParams.length > 0) {
-        const queryParamProperties: Record<string, Schema> = {};
-        const required: string[] = [];
-        
-        queryParams.forEach((param: any) => {
-          queryParamProperties[param.name] = param.schema;
-          if (param.required) {
-            required.push(param.name);
-          }
-        });
-        
-        normalizedSchemas[ep.queryParamsRef] = {
-          type: "object",
-          properties: queryParamProperties,
-          required: required.length > 0 ? required : undefined,
-        };
-      }
-    }
+  endpoints.forEach((ep) => {
+    if (!ep.queryParamsRef) return;
+
+    const queryParams = ep.parameters?.filter((p) => p.in === "query") || [];
+    if (queryParams.length === 0) return;
+
+    const queryParamProperties: Record<string, Schema> = {};
+    const required: string[] = [];
+
+    queryParams.forEach((param) => {
+      queryParamProperties[param.name] = param.schema;
+      if (param.required) required.push(param.name);
+    });
+
+    normalizedSchemas[ep.queryParamsRef] = {
+      type: "object",
+      properties: queryParamProperties,
+      required: required.length > 0 ? required : undefined,
+    };
   });
 
   return { endpoints, schemas: normalizedSchemas };
+}
+
+function parseV2(spec: unknown): OpenAPIModel {
+  if (!isObject(spec)) return { endpoints: [], schemas: {} };
+
+  const endpoints: Endpoint[] = [];
+  const paths = isObject(spec.paths) ? spec.paths : {};
+
+  for (const [path, methodsRaw] of Object.entries(paths)) {
+    const methods = isObject(methodsRaw) ? methodsRaw : {};
+    const pathParams = toParameterList(methods.parameters);
+
+    for (const [method, detailsRaw] of Object.entries(methods)) {
+      if (method === "parameters") continue;
+
+      const d = isObject(detailsRaw) ? detailsRaw : {};
+      const operationParams = toParameterList(d.parameters);
+      const mergedParams = [...pathParams, ...operationParams];
+
+      const bodyParam = mergedParams.find((p) => p.in === "body");
+      const parameters: Parameter[] = mergedParams.filter((p) => p.in !== "body").map(normalizeParamObject);
+
+      const requestBody = bodyParam ? normalizeSchema(bodyParam.schema) : undefined;
+      const requestBodyRef = bodyParam ? extractSchemaRef(bodyParam.schema) : undefined;
+
+      const consumes = Array.isArray(d.consumes) ? d.consumes : Array.isArray(spec.consumes) ? spec.consumes as string[] : ["application/json"];
+      const contentType = typeof consumes[0] === "string" ? consumes[0] : "application/json";
+
+      const successResponse = (isObject(d.responses) && (isObject(d.responses["201"]) || isObject(d.responses["200"])))
+        ? (d.responses["201"] || d.responses["200"])
+        : undefined;
+
+      const responseSchema = isObject(successResponse) ? (successResponse as RawObject).schema : undefined;
+      const responseRef = extractSchemaRef(responseSchema);
+
+      const queryParams = parameters.filter((p) => p.in === "query");
+      const queryParamsRef = queryParams.length > 0 ? `${String(d.operationId || `${method}_${path.replace(/\W/g, "_")}`)}QueryParams` : undefined;
+
+      endpoints.push({
+        path,
+        method: method.toUpperCase() as Endpoint["method"],
+        operationId: String(d.operationId || `${method}_${path.replace(/\W/g, "_")}`),
+        tags: Array.isArray(d.tags) ? d.tags.filter((tag) => typeof tag === "string") as string[] : [],
+        parameters,
+        requestBody,
+        requestBodyRef,
+        queryParamsRef,
+        contentType,
+        responses: isObject(d.responses) ? d.responses as Record<string, Response> : {},
+        responseRef,
+      });
+    }
+  }
+
+  const definitions = isObject(spec.definitions) ? spec.definitions : {};
+  const normalizedSchemas: Record<string, Schema> = {};
+
+  for (const [name, schema] of Object.entries(definitions)) {
+    normalizedSchemas[name] = normalizeSchema(schema);
+  }
+
+  endpoints.forEach((ep) => {
+    if (!ep.queryParamsRef) return;
+
+    const queryParams = ep.parameters?.filter((p) => p.in === "query") || [];
+    if (queryParams.length === 0) return;
+
+    const queryParamProperties: Record<string, Schema> = {};
+    const required: string[] = [];
+
+    queryParams.forEach((param) => {
+      queryParamProperties[param.name] = param.schema;
+      if (param.required) required.push(param.name);
+    });
+
+    normalizedSchemas[ep.queryParamsRef] = {
+      type: "object",
+      properties: queryParamProperties,
+      required: required.length > 0 ? required : undefined,
+    };
+  });
+
+  return { endpoints, schemas: normalizedSchemas };
+}
+
+export function parseOpenAPI(filePath: string): OpenAPIModel {
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const spec = JSON.parse(raw);
+
+  const version = isObject(spec) && typeof spec.openapi === "string"
+    ? spec.openapi
+    : isObject(spec) && typeof spec.swagger === "string"
+      ? spec.swagger
+      : "";
+
+  if (version.startsWith("3.")) {
+    return parseV3(spec);
+  }
+
+  if (version.startsWith("2.")) {
+    return parseV2(spec);
+  }
+
+  throw new Error(`Unsupported OpenAPI/Swagger version: ${version}. Supported: 2.0, 3.x`);
 }

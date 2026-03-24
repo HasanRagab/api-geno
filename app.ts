@@ -1,7 +1,7 @@
-import { AdminCoursesGroupsService, CoursesService } from "./generated/client";
+import { ApiService } from "./generated/client";
 
 async function main() {
-    const req = await CoursesService.findAll();
+    const req = await ApiService.get__union();
     if (req.isOk()) {
         console.log(req.value);
     } else {

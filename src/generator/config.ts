@@ -21,29 +21,23 @@ export type OpenAPIConfig = {
   ENCODE_PATH?: (path: string) => string;
 };
 
-import { Project, QuoteKind, IndentationText } from 'ts-morph';
-
 export function generateConfig(): string {
-  const project = new Project({ manipulationSettings: { quoteKind: QuoteKind.Single, indentationText: IndentationText.TwoSpaces } });
-  const file = project.createSourceFile('openapi.config.ts', '', { overwrite: true });
-
-  file.addStatements('export const OpenAPI: OpenAPIConfig = {');
-  file.addStatements("  BASE: 'http://localhost:4000',");
-  file.addStatements("  VERSION: '1.0.0',");
-  file.addStatements('  WITH_CREDENTIALS: false,');
-  file.addStatements("  CREDENTIALS: 'include',");
-  file.addStatements('  TOKEN: undefined,');
-  file.addStatements('  USERNAME: undefined,');
-  file.addStatements('  PASSWORD: undefined,');
-  file.addStatements('  HEADERS: undefined,');
-  file.addStatements("  AUTH_SCHEME: undefined,");
-  file.addStatements('  API_KEY: undefined,');
-  file.addStatements("  API_KEY_NAME: undefined,");
-  file.addStatements("  API_KEY_IN: undefined,");
-  file.addStatements('  ENCODE_PATH: undefined,');
-  file.addStatements('};');
-
-  return file.getFullText();
+  return `export const OpenAPI: OpenAPIConfig = {
+  BASE: 'http://localhost:4000',
+  VERSION: '1.0.0',
+  WITH_CREDENTIALS: false,
+  CREDENTIALS: 'include',
+  TOKEN: undefined,
+  USERNAME: undefined,
+  PASSWORD: undefined,
+  HEADERS: undefined,
+  AUTH_SCHEME: undefined,
+  API_KEY: undefined,
+  API_KEY_NAME: undefined,
+  API_KEY_IN: undefined,
+  ENCODE_PATH: undefined,
+};
+`;
 }
 
 export function generateConfigTypes(): string {

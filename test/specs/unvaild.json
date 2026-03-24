@@ -1,0 +1,25 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Edge API", "version": "1.0.0" },
+  "paths": {
+    "/union": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Union test",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    { "type": "string" },
+                    { "type": "number" }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

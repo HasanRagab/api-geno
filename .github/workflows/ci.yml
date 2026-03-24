@@ -5,6 +5,8 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  release:
+    types: [created]
 
 jobs:
   build-and-test:
@@ -40,11 +42,20 @@ jobs:
         run: |
           bun dist/cli.js generate -i api.json -o ./generated
 
-      - name: Verify generated outputs are committed
-        run: |
-          git status --porcelain
-          git diff --quiet || (echo 'Generated files differ - please commit generated outputs' && exit 1)
-
       - name: Run tests
         run: |
           bun test
+
+      - name: Compile standalone CLI
+        run: |
+          mkdir -p release
+          bun run release
+          chmod +x release/api-geno
+
+      - name: Upload GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/api-geno
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -15,16 +15,28 @@ program
   .option('--skip-generated-outputs', 'Do not write generated files to disk')
   .option('--force', 'Force regeneration even if input and options did not change')
   .option('--output-format <fmt>', "Output format (ts|esm). Currently ts only", 'ts')
-  .action(async (opts: any) => {
-    const errorStyle = opts.emitOnlyShapes ? 'shape' : opts.errorStyle || 'both';
+  .action(async (opts: any, cmd: any) => {
+    const options = typeof cmd?.opts === 'function' ? cmd.opts() : opts;
+    const outputDir = options.output || options.out;
+    const inputFile = options.input || options.in;
 
-    if (!fs.existsSync(opts.output)) fs.mkdirSync(opts.output, { recursive: true });
+    if (!inputFile) {
+      throw new Error('Missing input file; use --input <file>');
+    }
+
+    if (!outputDir) {
+      throw new Error('Missing output directory; use --output <dir>');
+    }
+
+    const errorStyle = options.emitOnlyShapes ? 'shape' : options.errorStyle || 'both';
+
+    if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
     // simple cache: store hash of input + options to avoid unnecessary work
     const crypto = await import('crypto');
-    const inputData = fs.readFileSync(opts.input, 'utf8');
+    const inputData = fs.readFileSync(inputFile, 'utf8');
     const hash = crypto.createHash('sha256').update(inputData + JSON.stringify({ errorStyle })).digest('hex');
-    const hashPath = path.join(opts.output, '.api-geno.hash');
+    const hashPath = path.join(outputDir, '.api-geno.hash');
     let previousHash: string | null = null;
     if (fs.existsSync(hashPath)) previousHash = fs.readFileSync(hashPath, 'utf8');
 
@@ -33,7 +45,7 @@ program
       return;
     }
 
-    const files = await generateFromOpenAPI(opts.input, [], { errorStyle });
+    const files = generateFromOpenAPI(opts.input, [], { errorStyle });
 
     if (opts.skipGeneratedOutputs) {
       // print files to console for inspection
