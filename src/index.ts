@@ -47,6 +47,17 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 
 	b.blank();
 
+	// ── safeParseJson helper ─────────────────────────────────────
+	b.function("safeParseJson", { params: "text: string" }, (f) => {
+		f.tryCatch(
+			(t) => t.return("JSON.parse(text)"),
+			"error: any",
+			(c) => c.return("undefined"),
+		);
+	});
+
+	b.blank();
+
 	// ── prepareRequest helper ────────────────────────────────────
 	b.function(
 		"prepareRequest",
@@ -174,7 +185,19 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
         })`,
 				);
 				tryBody.const("text", "await response.text()");
-				tryBody.const("body", "text ? JSON.parse(text) : undefined");
+				tryBody.const(
+					"contentType",
+					"(response.headers.get('content-type') || '').toLowerCase()",
+				);
+				tryBody.const(
+					"body",
+					"text ? (/(application\\/json|\\+json|\\/json)/i.test(contentType) ? safeParseJson(text) : text) : undefined",
+				);
+				tryBody.if("text && /application\\/json|\\+json|\\/json/i.test(contentType) && body === undefined", (b) =>
+					b.return(
+						"err(new HttpError(response.status, 'Failed to parse response JSON', null))",
+					),
+				);
 				tryBody.if("!response.ok", (b) =>
 					b.return(
 						"err(new HttpError(response.status, response.statusText, body))",

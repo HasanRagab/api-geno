@@ -176,6 +176,14 @@ describe("generated code", () => {
 		expect(files["http-adapter.ts"]).not.toContain("axios");
 	});
 
+	test("generateFromOpenAPI fetch adapter does safe JSON parsing", () => {
+		const files = generateFromOpenAPI("test/specs/openapi3.json", [], {
+			httpAdapter: "fetch",
+		});
+		expect(files["http-adapter.ts"]).toContain("function safeParseJson");
+		expect(files["http-adapter.ts"]).toContain("Failed to parse response JSON");
+	});
+
 	test("plugins can transform endpoints and schemas", () => {
 		const spec = {
 			openapi: "3.0.0",
