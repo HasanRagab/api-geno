@@ -105,25 +105,35 @@ function buildMethod(
 				m.line("const cookies: Record<string, string> = {};");
 			}
 
-			if (queryKeys.length > 0) {
-				m.line("const queryParamsObj = new URLSearchParams();");
-				m.line("const paramsRecord = params as Record<string, unknown>;");
-				m.line(
-					`[${queryKeys.join(", ")}].forEach((key) => { if (paramsRecord[key] !== undefined) queryParamsObj.append(key, String(paramsRecord[key])); });`,
-				);
-				m.line("const queryString = queryParamsObj.toString();");
-				m.line(
-					`const url = \`${pathTemplate}\` + (queryString ? "?" + queryString : "");`,
-				);
-			} else {
-				m.line(`const url = \`${pathTemplate}\`;`);
-			}
+			m.line("const queryParamsObj = new URLSearchParams();");
+			m.line("const paramsRecord = params as Record<string, unknown>;");
 
 			if (ep.queryParamsRef?.trim()) {
 				m.line(
 					`try { ${ep.queryParamsRef}Schema.parse(params); } catch (error: unknown) { return err(new ValidationError(formatError(error))); }`,
 				);
 			}
+
+			if (queryKeys.length > 0) {
+				m.line(
+					`[${queryKeys.join(", ")}].forEach((key) => { if (paramsRecord[key] !== undefined) queryParamsObj.append(key, String(paramsRecord[key])); });`,
+				);
+			}
+
+			if (ep.queryParamsRef?.trim()) {
+				const extraKeys = queryKeys.length > 0 ? `new Set([${queryKeys.join(", ")}])` : "new Set()";
+				m.line(
+					`const _explicitQueryKeys = ${extraKeys};`,
+				);
+				m.line(
+					"Object.entries(paramsRecord).forEach(([key, value]) => { if (value !== undefined && !_explicitQueryKeys.has(key)) queryParamsObj.append(key, String(value)); });",
+				);
+			}
+
+			m.line("const queryString = queryParamsObj.toString();");
+			m.line(
+				`const url = \`${pathTemplate}\` + (queryString ? "?" + queryString : "");`,
+			);
 
 			if (hasBody && ep.requestBodyRef?.trim()) {
 				m.line(
