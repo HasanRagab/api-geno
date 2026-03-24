@@ -29,10 +29,15 @@ program
 		"Output format (ts|esm). Currently ts only",
 		"ts",
 	)
+	.option(
+		"--http-adapter <adapter>",
+		"Http adapter to generate (axios|fetch)",
+		"axios",
+	)
 	.action(async (opts: any, cmd: any) => {
 		const options = typeof cmd?.opts === "function" ? cmd.opts() : opts;
-		const outputDir = options.output || options.out;
-		const inputFile = options.input || options.in;
+		const outputDir = path.resolve(options.output || options.out);
+		const inputFile = path.resolve(options.input || options.in);
 
 		if (!inputFile) {
 			throw new Error("Missing input file; use --input <file>");
@@ -42,9 +47,21 @@ program
 			throw new Error("Missing output directory; use --output <dir>");
 		}
 
+		if (!fs.existsSync(inputFile)) {
+			throw new Error(`Input file does not exist: ${inputFile}`);
+		}
+
 		const errorStyle = options.emitOnlyShapes
 			? "shape"
 			: options.errorStyle || "both";
+		const outputFormat = options.outputFormat || "ts";
+		const httpAdapter = options.httpAdapter || "axios";
+		const skipGeneratedOutputs = !!options.skipGeneratedOutputs;
+		const forceRegen = !!options.force;
+
+		if (outputFormat !== "ts") {
+			throw new Error("Unsupported --output-format: currently only 'ts' is supported");
+		}
 
 		if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
@@ -53,33 +70,50 @@ program
 		const inputData = fs.readFileSync(inputFile, "utf8");
 		const hash = crypto
 			.createHash("sha256")
-			.update(inputData + JSON.stringify({ errorStyle }))
+			.update(
+				inputData +
+				JSON.stringify({
+					errorStyle,
+					outputFormat,
+					httpAdapter,
+					emitOnlyShapes: !!options.emitOnlyShapes,
+					skipGeneratedOutputs,
+				}),
+			)
 			.digest("hex");
 		const hashPath = path.join(outputDir, ".api-geno.hash");
 		let previousHash: string | null = null;
 		if (fs.existsSync(hashPath))
 			previousHash = fs.readFileSync(hashPath, "utf8");
 
-		if (!opts.force && previousHash === hash) {
+		if (!forceRegen && previousHash === hash) {
 			console.log(
 				"No changes detected in API + options — skipping generation.",
 			);
 			return;
 		}
 
-		const files = generateFromOpenAPI(opts.input, [], { errorStyle });
+		const generationOptions = {
+			errorStyle,
+			outputFormat,
+			httpAdapter,
+		};
 
-		if (opts.skipGeneratedOutputs) {
+		const files = generateFromOpenAPI(inputFile, [], generationOptions);
+
+		if (skipGeneratedOutputs) {
 			// print files to console for inspection
 			for (const [name, content] of Object.entries(files)) {
 				console.log(`--- ${name} ---`);
 				console.log(content as string);
 			}
+			fs.writeFileSync(hashPath, hash, "utf8");
+			console.log("Skip generated outputs enabled; cache hash updated.");
 			return;
 		}
 
 		for (const [name, content] of Object.entries(files)) {
-			const filePath = path.join(opts.output, name);
+			const filePath = path.join(outputDir, name);
 			const dir = path.dirname(filePath);
 			if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 			fs.writeFileSync(filePath, content as string, "utf-8");
