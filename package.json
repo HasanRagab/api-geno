@@ -24,6 +24,7 @@
 	"homepage": "https://github.com/HasanRagab/api-geno#readme",
 	"scripts": {
 		"build": "tsc && tsc-esm-fix",
+		"gen": "tsc && tsc-esm-fix && bun run ./dist/cli.js generate -i api.json -o ./generated --force",
 		"check": "tsc --noEmit",
 		"release": "bun build src/cli.ts --outfile release/api-geno --compress --minify --target node"
 	},
