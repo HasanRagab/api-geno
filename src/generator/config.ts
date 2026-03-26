@@ -21,14 +21,15 @@ export type OpenAPIConfig = {
 	API_KEY_NAME?: string;
 	API_KEY_IN?: "header" | "query";
 	ENCODE_PATH?: (path: string) => string;
+	AXIOS_INSTANCE?: any;
 };
 
-export function generateConfig(): string {
+export function generateConfig(base = "http://localhost:4000", version = "1.0.0"): string {
 	const b = new CodeBuilder();
 	b.line("export const OpenAPI: OpenAPIConfig = {");
 	b.indent();
-	b.line("BASE: 'http://localhost:4000',");
-	b.line("VERSION: '1.0.0',");
+	b.line(`BASE: '${base}',`);
+	b.line(`VERSION: '${version}',`);
 	b.line("WITH_CREDENTIALS: false,");
 	b.line("CREDENTIALS: 'include',");
 	b.line("TOKEN: undefined,");
@@ -40,6 +41,7 @@ export function generateConfig(): string {
 	b.line("API_KEY_NAME: undefined,");
 	b.line("API_KEY_IN: undefined,");
 	b.line("ENCODE_PATH: undefined,");
+	b.line("AXIOS_INSTANCE: undefined,");
 	b.dedent();
 	b.line("};");
 	return b.toString();
@@ -70,6 +72,7 @@ export function generateConfigTypes(): string {
 	b.line("API_KEY_NAME?: string;");
 	b.line("API_KEY_IN?: 'header' | 'query';");
 	b.line("ENCODE_PATH?: (path: string) => string;");
+	b.line("AXIOS_INSTANCE?: any;");
 	b.dedent();
 	b.line("};");
 	return b.toString();

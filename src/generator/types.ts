@@ -59,6 +59,13 @@ export function generateTypes(
 			builder.line(`import { ${ref}Schema, ${ref} } from './${ref}';`),
 		);
 		builder.blank();
+		const docLines: string[] = [];
+		if (schema.description) docLines.push(...schema.description.split("\n"));
+		if (schema.deprecated) {
+			if (docLines.length > 0) docLines.push("");
+			docLines.push("@deprecated");
+		}
+		if (docLines.length > 0) builder.docComment(docLines);
 		builder.line(buildZodSchema(name, schema));
 		builder.line(`export type ${name} = z.infer<typeof ${name}Schema>;`);
 

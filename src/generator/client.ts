@@ -88,6 +88,17 @@ function buildMethod(
 	const paramsDecl =
 		optsParts.length > 0 ? `opts: { ${optsParts.join("; ")} } = {}` : "";
 	const returnType = `Promise<Result<${responseType}, ${errorTypeName}>>`;
+	const docLines: string[] = [];
+	if (ep.summary) docLines.push(ep.summary);
+	if (ep.description) {
+		if (docLines.length > 0) docLines.push("");
+		docLines.push(...ep.description.split("\n"));
+	}
+	if (ep.deprecated) {
+		if (docLines.length > 0) docLines.push("");
+		docLines.push("@deprecated");
+	}
+	if (docLines.length > 0) builder.docComment(docLines);
 
 	builder.method(
 		methodName,
@@ -95,7 +106,7 @@ function buildMethod(
 		(m) => {
 			if (optsParts.length > 0) {
 				const destructure: string[] = [];
-				if (hasParams) destructure.push("params = {}");
+				if (hasParams) destructure.push("params");
 				if (hasBody) destructure.push("body");
 				if (needsHeaders) destructure.push("headers = {}");
 				if (needsCookies) destructure.push("cookies = {}");
@@ -106,7 +117,11 @@ function buildMethod(
 			}
 
 			m.line("const queryParamsObj = new URLSearchParams();");
-			m.line("const paramsRecord = params as Record<string, unknown>;");
+			if (hasParams) {
+				m.line("const paramsRecord = params as Record<string, unknown>;");
+			} else {
+				m.line("const paramsRecord = {};");
+			}
 
 			if (ep.queryParamsRef?.trim()) {
 				m.line(

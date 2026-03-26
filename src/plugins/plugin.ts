@@ -3,7 +3,7 @@ import type { Endpoint, OpenAPIModel, Schema } from "../models";
 export interface GeneratorPlugin {
 	name: string;
 	beforeGenerate?: (api: OpenAPIModel) => void;
-	afterGenerate?: (files: Record<string, string>) => void;
+	afterGenerate?: (files: Record<string, string>, api: OpenAPIModel) => void;
 	transformEndpoint?: (endpoint: Endpoint) => Endpoint;
 	transformSchema?: (name: string, schema: Schema) => Schema;
 }

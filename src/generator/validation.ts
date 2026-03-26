@@ -18,12 +18,20 @@ export function getZodType(schema: Schema): string {
 
 	if (schema.oneOf && schema.oneOf.length > 0) {
 		const refs = schema.oneOf.map((item) => getZodType(item));
+		if (schema.discriminator) {
+			const union = `z.discriminatedUnion("${schema.discriminator.propertyName}", [${refs.join(", ")}])`;
+			return schema.nullable ? `${union}.nullable()` : union;
+		}
 		const union = `z.union([${refs.join(", ")}])`;
 		return schema.nullable ? `${union}.nullable()` : union;
 	}
 
 	if (schema.anyOf && schema.anyOf.length > 0) {
 		const refs = schema.anyOf.map((item) => getZodType(item));
+		if (schema.discriminator) {
+			const union = `z.discriminatedUnion("${schema.discriminator.propertyName}", [${refs.join(", ")}])`;
+			return schema.nullable ? `${union}.nullable()` : union;
+		}
 		const union = `z.union([${refs.join(", ")}])`;
 		return schema.nullable ? `${union}.nullable()` : union;
 	}
@@ -70,6 +78,13 @@ export function getZodType(schema: Schema): string {
 
 	if (schema.type === "string") {
 		const parts: string[] = ["z.string()"];
+		if (schema.format === "date-time") parts[0] = "z.string().datetime()";
+		if (schema.format === "email") parts[0] = "z.string().email()";
+		if (schema.format === "uuid") parts[0] = "z.string().uuid()";
+		if (schema.format === "url") parts[0] = "z.string().url()";
+		if (schema.format === "ipv4") parts[0] = "z.string().ip({ version: 'v4' })";
+		if (schema.format === "ipv6") parts[0] = "z.string().ip({ version: 'v6' })";
+
 		if (schema.minLength) parts.push(`.min(${schema.minLength})`);
 		if (schema.maxLength) parts.push(`.max(${schema.maxLength})`);
 		if (schema.pattern) parts.push(`.regex(/${schema.pattern}/)`);
@@ -91,8 +106,8 @@ export function getZodType(schema: Schema): string {
 			parts.push(`${op}(${schema.maximum})`);
 		}
 		if (schema.enum) {
-			const enumValues = schema.enum.join(", ");
-			parts[0] = `z.enum([${enumValues}])`;
+			const literals = schema.enum.map((v: any) => `z.literal(${v})`).join(", ");
+			parts[0] = `z.union([${literals}])`;
 		}
 		zodType = parts.join("");
 	}

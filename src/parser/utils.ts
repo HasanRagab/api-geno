@@ -38,6 +38,8 @@ export function normalizeSchema(schema: unknown): Schema {
 			typeof schema.type === "string"
 				? (schema.type as Schema["type"])
 				: "object",
+		format: typeof schema.format === "string" ? schema.format : undefined,
+		deprecated: schema.deprecated === true,
 	};
 
 	if (isObject(schema.properties)) {
@@ -85,6 +87,15 @@ export function normalizeSchema(schema: unknown): Schema {
 
 	if (Array.isArray(schema.enum)) {
 		normalized.enum = schema.enum as (string | number | boolean)[];
+	}
+
+	if (isObject(schema.discriminator) && typeof schema.discriminator.propertyName === "string") {
+		normalized.discriminator = {
+			propertyName: schema.discriminator.propertyName,
+			mapping: isObject(schema.discriminator.mapping)
+				? (schema.discriminator.mapping as Record<string, string>)
+				: undefined,
+		};
 	}
 
 	if (schema.default !== undefined) {

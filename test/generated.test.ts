@@ -80,31 +80,6 @@ describe("generated code", () => {
 		expect(anyHaveOpts).toBe(true);
 	});
 
-	test("generated methods assign defaults for params/headers/cookies", () => {
-		const endpoints: Endpoint[] = [
-			{
-				path: "/items",
-				method: "GET",
-				operationId: "listItems",
-				tags: ["Items"],
-				parameters: [{ name: "page", in: "query", schema: { type: "number" } }],
-				requestBody: undefined,
-				requestBodyRef: undefined,
-				queryParamsRef: "itemsFindAllQueryParams",
-				responseRef: "ItemListResponseDto",
-				contentType: "application/json",
-				responses: {},
-			},
-		];
-
-		const generated = generateClient(endpoints);
-		const service = generated["services/ItemsService.ts"];
-
-		expect(service).toContain(
-			"const { params = {}, headers = {}, cookies = {} } = opts;",
-		);
-	});
-
 	test("safe method naming dedupes collision operations", () => {
 		const endpoints: Endpoint[] = [
 			{

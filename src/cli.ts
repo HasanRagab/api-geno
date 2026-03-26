@@ -39,92 +39,122 @@ program
 		"Http adapter to generate (axios|fetch)",
 		"axios",
 	)
+	.option("-w, --watch", "Watch input file for changes and regenerate")
 	.action(async (opts: any, cmd: any) => {
 		const options = typeof cmd?.opts === "function" ? cmd.opts() : opts;
-		const outputDir = path.resolve(options.output || options.out);
-		const inputFile = path.resolve(options.input || options.in);
 
-		if (!inputFile) {
-			throw new Error("Missing input file; use --input <file>");
-		}
+		const runGeneration = async () => {
+			// Load from config file if exists
+			const configPath = path.resolve("api-geno.config.json");
+			let fileConfig: any = {};
+			if (fs.existsSync(configPath)) {
+				try {
+					fileConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+				} catch (err: any) {
+					console.warn(`Warning: Failed to parse api-geno.config.json: ${err.message}`);
+				}
+			}
 
-		if (!outputDir) {
-			throw new Error("Missing output directory; use --output <dir>");
-		}
+			const mergedOptions = { ...fileConfig, ...options };
 
-		if (!fs.existsSync(inputFile)) {
-			throw new Error(`Input file does not exist: ${inputFile}`);
-		}
+			const outputDir = path.resolve(mergedOptions.output || mergedOptions.out || "./generated");
+			const inputFile = path.resolve(mergedOptions.input || mergedOptions.in);
 
-		const errorStyle = options.emitOnlyShapes
-			? "shape"
-			: options.errorStyle || "both";
-		const outputFormat = options.outputFormat || "ts";
-		const httpAdapter = options.httpAdapter || "axios";
-		const skipGeneratedOutputs = !!options.skipGeneratedOutputs;
-		const forceRegen = !!options.force;
+			if (!inputFile) {
+				throw new Error("Missing input file; use --input <file> or specify in api-geno.config.json");
+			}
 
-		if (outputFormat !== "ts") {
-			throw new Error("Unsupported --output-format: currently only 'ts' is supported");
-		}
+			if (!fs.existsSync(inputFile)) {
+				throw new Error(`Input file does not exist: ${inputFile}`);
+			}
 
-		if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+			const errorStyle = mergedOptions.emitOnlyShapes ? "shape" : mergedOptions.errorStyle || "both";
+			const httpAdapter = mergedOptions.httpAdapter || "axios";
+			const skipGeneratedOutputs = !!mergedOptions.skipGeneratedOutputs;
+			const forceRegen = !!mergedOptions.force;
 
-		// simple cache: store hash of input + options to avoid unnecessary work
-		const crypto = await import("crypto");
-		const inputData = fs.readFileSync(inputFile, "utf8");
-		const hash = crypto
-			.createHash("sha256")
-			.update(
-				inputData +
-				JSON.stringify({
-					errorStyle,
-					outputFormat,
-					httpAdapter,
-					emitOnlyShapes: !!options.emitOnlyShapes,
-					skipGeneratedOutputs,
-				}),
-			)
-			.digest("hex");
-		const hashPath = path.join(outputDir, ".api-geno.hash");
-		let previousHash: string | null = null;
-		if (fs.existsSync(hashPath))
-			previousHash = fs.readFileSync(hashPath, "utf8");
+			if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
-		if (!forceRegen && previousHash === hash) {
-			console.log(
-				"No changes detected in API + options — skipping generation.",
-			);
-			return;
-		}
+			const crypto = await import("crypto");
+			const inputData = fs.readFileSync(inputFile, "utf8");
+			const hash = crypto
+				.createHash("sha256")
+				.update(
+					inputData +
+					JSON.stringify({
+						errorStyle,
+						httpAdapter,
+						emitOnlyShapes: !!mergedOptions.emitOnlyShapes,
+						skipGeneratedOutputs,
+					}),
+				)
+				.digest("hex");
 
-		const generationOptions = {
-			errorStyle,
-			outputFormat,
-			httpAdapter,
+			const hashPath = path.join(outputDir, ".api-geno.hash");
+			let previousHash: string | null = null;
+			if (fs.existsSync(hashPath)) previousHash = fs.readFileSync(hashPath, "utf8");
+
+			if (!forceRegen && previousHash === hash) {
+				if (!options.watch) {
+					console.log("No changes detected in API + options — skipping generation.");
+				}
+				return;
+			}
+
+			console.log(`Generating API client to ${outputDir}...`);
+			const files = generateFromOpenAPI(inputFile, [], {
+				errorStyle,
+				httpAdapter,
+			});
+
+			if (skipGeneratedOutputs) {
+				for (const [name, content] of Object.entries(files)) {
+					console.log(`--- ${name} ---`);
+					console.log(content);
+				}
+				fs.writeFileSync(hashPath, hash, "utf8");
+				return;
+			}
+
+			for (const [name, content] of Object.entries(files)) {
+				const filePath = path.join(outputDir, name);
+				const dir = path.dirname(filePath);
+				if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+				fs.writeFileSync(filePath, content, "utf-8");
+			}
+
+			fs.writeFileSync(hashPath, hash, "utf8");
+			console.log("Generation complete.");
 		};
 
-		const files = generateFromOpenAPI(inputFile, [], generationOptions);
+		await runGeneration().catch(err => {
+			console.error(`Error: ${err.message}`);
+			if (!options.watch) process.exit(1);
+		});
 
-		if (skipGeneratedOutputs) {
-			// print files to console for inspection
-			for (const [name, content] of Object.entries(files)) {
-				console.log(`--- ${name} ---`);
-				console.log(content as string);
+		if (options.watch) {
+			const inputFile = path.resolve(options.input || "api-geno.config.json");
+			console.log(`Watching for changes...`);
+
+			const onChange = async () => {
+				console.log("Change detected, regenerating...");
+				await runGeneration().catch(err => console.error(`Regeneration failed: ${err.message}`));
+			};
+
+			fs.watch(inputFile, (event) => {
+				if (event === "change") onChange();
+			});
+
+			const configPath = path.resolve("api-geno.config.json");
+			if (fs.existsSync(configPath)) {
+				fs.watch(configPath, (event) => {
+					if (event === "change") onChange();
+				});
 			}
-			fs.writeFileSync(hashPath, hash, "utf8");
-			console.log("Skip generated outputs enabled; cache hash updated.");
-			return;
-		}
 
-		for (const [name, content] of Object.entries(files)) {
-			const filePath = path.join(outputDir, name);
-			const dir = path.dirname(filePath);
-			if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-			fs.writeFileSync(filePath, content as string, "utf-8");
+			// Keep process alive
+			process.stdin.resume();
 		}
-
-		fs.writeFileSync(hashPath, hash, "utf8");
 	});
 
 program.parse(process.argv);

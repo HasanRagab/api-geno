@@ -108,7 +108,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 						b.const(
 							"creds",
 							"(typeof username === 'function' ? await username() : username)" +
-								" + ':' + (typeof password === 'function' ? await password() : password)",
+							" + ':' + (typeof password === 'function' ? await password() : password)",
 						);
 						b.assign(
 							"finalHeaders['Authorization']",
@@ -135,7 +135,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 										b.assign(
 											"finalUrl",
 											"finalUrl + joinChar + encodeURIComponent(apiKeyName)" +
-												" + '=' + encodeURIComponent(String(apiKeyVal))",
+											" + '=' + encodeURIComponent(String(apiKeyVal))",
 										);
 									},
 								},
@@ -193,6 +193,10 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 					"body",
 					"text ? (/(application\\/json|\\+json|\\/json)/i.test(contentType) ? safeParseJson(text) : text) : undefined",
 				);
+				tryBody.if("contentType && !/application\\/json|\\+json|\\/json|text\\//i.test(contentType)", (b) => {
+					b.const("blob", "await response.blob()");
+					b.return("ok(blob as any)");
+				});
 				tryBody.if("text && /application\\/json|\\+json|\\/json/i.test(contentType) && body === undefined", (b) =>
 					b.return(
 						"err(new HttpError(response.status, 'Failed to parse response JSON', null))",
@@ -207,12 +211,13 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 			} else {
 				tryBody.const(
 					"response",
-					`await axios({
+					`await (OpenAPI.AXIOS_INSTANCE || axios)({
           url: finalUrl,
           method: options.method || "GET",
           headers,
           data: options.body,
           withCredentials: OpenAPI.WITH_CREDENTIALS,
+          responseType: contentType && !/application\\/json|\\+json|\\/json|text\\//i.test(contentType) ? 'blob' : 'json',
         })`,
 				);
 				tryBody.return("ok(response.data as any)");
@@ -279,7 +284,7 @@ export function generateFromOpenAPI(
 	configBuilder.raw(generateConfigTypes());
 	configBuilder.blank();
 	configBuilder.blank();
-	configBuilder.raw(generateConfig());
+	configBuilder.raw(generateConfig(api.base));
 
 	// Build http-adapter.ts with CodeBuilder (calls generateHttpAdapter above)
 	const adapterCode = generateHttpAdapter(options.httpAdapter ?? "axios");
@@ -292,6 +297,6 @@ export function generateFromOpenAPI(
 		"openapi.config.ts": configBuilder.toString(),
 	};
 
-	plugins.forEach((p) => p.afterGenerate?.(files));
+	plugins.forEach((p) => p.afterGenerate?.(files, api));
 	return files;
 }

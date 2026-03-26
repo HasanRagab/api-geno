@@ -26,7 +26,12 @@ export interface Schema {
 	example?: any;
 	description?: string;
 	title?: string;
+	discriminator?: {
+		propertyName: string;
+		mapping?: Record<string, string>;
+	};
 	nullable?: boolean;
+	deprecated?: boolean;
 }
 
 export interface Parameter {
@@ -45,6 +50,8 @@ export interface Endpoint {
 	path: string;
 	method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HEAD";
 	operationId: string;
+	summary?: string;
+	description?: string;
 
 	tags?: string[];
 	parameters?: Parameter[];
@@ -56,11 +63,13 @@ export interface Endpoint {
 	contentType?: string;
 
 	responses: Record<string, Response>;
+	deprecated?: boolean;
 }
 
 export interface OpenAPIModel {
 	endpoints: Endpoint[];
 	schemas: Record<string, Schema>;
+	base?: string;
 	components?: {
 		schemas: Record<string, Schema>;
 	};

@@ -25,6 +25,14 @@ interface OpenAPIContentSchema {
 function parseV3(spec: unknown): OpenAPIModel {
 	if (!isObject(spec)) return { endpoints: [], schemas: {} };
 
+	let base = "http://localhost:4000";
+	if (Array.isArray(spec.servers) && spec.servers.length > 0) {
+		const server = spec.servers[0];
+		if (isObject(server) && typeof server.url === "string") {
+			base = server.url;
+		}
+	}
+
 	const endpoints: Endpoint[] = [];
 	const paths = isObject(spec.paths) ? spec.paths : {};
 
@@ -52,20 +60,17 @@ function parseV3(spec: unknown): OpenAPIModel {
 
 			const successResponse =
 				isObject(d.responses) &&
-				(isObject(d.responses["201"]) || isObject(d.responses["200"]))
+					(isObject(d.responses["201"]) || isObject(d.responses["200"]))
 					? d.responses["201"] || d.responses["200"]
 					: undefined;
 
-			const responseSchema =
-				isObject(successResponse) &&
-				isObject((successResponse as RawObject).content)
-					? (
-							(successResponse as RawObject).content as Record<
-								string,
-								OpenAPIContentSchema
-							>
-						)["application/json"]?.schema
-					: undefined;
+			const content = isObject(successResponse) && isObject((successResponse as RawObject).content)
+				? (successResponse as RawObject).content as Record<string, OpenAPIContentSchema>
+				: undefined;
+
+			const responseSchema = content
+				? content["application/json"]?.schema || Object.values(content)[0]?.schema
+				: undefined;
 
 			const responseRef = extractSchemaRef(responseSchema);
 			const queryParams = parameters.filter((p) => p.in === "query");
@@ -83,6 +88,8 @@ function parseV3(spec: unknown): OpenAPIModel {
 				tags: Array.isArray(d.tags)
 					? (d.tags.filter((tag) => typeof tag === "string") as string[])
 					: [],
+				summary: typeof d.summary === "string" ? d.summary : undefined,
+				description: typeof d.description === "string" ? d.description : undefined,
 				parameters,
 				requestBody,
 				requestBodyRef,
@@ -108,11 +115,21 @@ function parseV3(spec: unknown): OpenAPIModel {
 
 	createQuerySchemaReference(endpoints, normalizedSchemas);
 
-	return { endpoints, schemas: normalizedSchemas };
+	return { endpoints, schemas: normalizedSchemas, base };
 }
 
 function parseV2(spec: unknown): OpenAPIModel {
 	if (!isObject(spec)) return { endpoints: [], schemas: {} };
+
+	let base = "http://localhost:4000";
+	if (typeof spec.host === "string") {
+		const scheme =
+			Array.isArray(spec.schemes) && typeof spec.schemes[0] === "string"
+				? spec.schemes[0]
+				: "http";
+		const basePath = typeof spec.basePath === "string" ? spec.basePath : "";
+		base = `${scheme}://${spec.host}${basePath}`;
+	}
 
 	const endpoints: Endpoint[] = [];
 	const paths = isObject(spec.paths) ? spec.paths : {};
@@ -150,7 +167,7 @@ function parseV2(spec: unknown): OpenAPIModel {
 
 			const successResponse =
 				isObject(d.responses) &&
-				(isObject(d.responses["201"]) || isObject(d.responses["200"]))
+					(isObject(d.responses["201"]) || isObject(d.responses["200"]))
 					? d.responses["201"] || d.responses["200"]
 					: undefined;
 
@@ -174,6 +191,8 @@ function parseV2(spec: unknown): OpenAPIModel {
 				tags: Array.isArray(d.tags)
 					? (d.tags.filter((tag) => typeof tag === "string") as string[])
 					: [],
+				summary: typeof d.summary === "string" ? d.summary : undefined,
+				description: typeof d.description === "string" ? d.description : undefined,
 				parameters,
 				requestBody,
 				requestBodyRef,
@@ -196,7 +215,7 @@ function parseV2(spec: unknown): OpenAPIModel {
 
 	createQuerySchemaReference(endpoints, normalizedSchemas);
 
-	return { endpoints, schemas: normalizedSchemas };
+	return { endpoints, schemas: normalizedSchemas, base };
 }
 
 export function parseOpenAPI(filePath: string): OpenAPIModel {
