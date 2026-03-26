@@ -3,6 +3,7 @@ import { generateClient } from "./generator/client";
 import { generateConfig, generateConfigTypes } from "./generator/config";
 import { generateErrors } from "./generator/errors";
 import { generateTypes } from "./generator/types";
+import { generateCommonHelper } from "./generator/common";
 import type { OpenAPIModel } from "./models";
 import { parseOpenAPI } from "./parser/openapi";
 import type { GeneratorPlugin } from "./plugins/plugin";
@@ -295,6 +296,7 @@ export function generateFromOpenAPI(
 		"http-adapter.ts": adapterCode,
 		"errors.ts": errorsCode,
 		"openapi.config.ts": configBuilder.toString(),
+		"request-helper.ts": generateCommonHelper(),
 	};
 
 	plugins.forEach((p) => p.afterGenerate?.(files, api));

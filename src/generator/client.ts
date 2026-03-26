@@ -108,79 +108,31 @@ function buildMethod(
 				const destructure: string[] = [];
 				if (hasParams) destructure.push("params");
 				if (hasBody) destructure.push("body");
-				if (needsHeaders) destructure.push("headers = {}");
-				if (needsCookies) destructure.push("cookies = {}");
+				if (needsHeaders) destructure.push("headers");
+				if (needsCookies) destructure.push("cookies");
 				m.line(`const { ${destructure.join(", ")} } = opts;`);
-			} else {
-				m.line("const headers: Record<string, string> = {};");
-				m.line("const cookies: Record<string, string> = {};");
 			}
 
-			m.line("const queryParamsObj = new URLSearchParams();");
-			if (hasParams) {
-				m.line("const paramsRecord = params as Record<string, unknown>;");
-			} else {
-				m.line("const paramsRecord = {};");
-			}
+			const requestOptions = [
+				`path: \`${pathTemplate}\``,
+				`method: '${lowerMethod}'`,
+				hasParams ? "params" : "params: {}",
+				ep.queryParamsRef ? `paramsSchema: ${ep.queryParamsRef}Schema` : "",
+				queryKeys.length > 0 ? `explicitQueryKeys: [${queryKeys.join(", ")}]` : "",
+				hasBody && ep.requestBodyRef ? `body: body` : "",
+				hasBody && ep.requestBodyRef ? `bodySchema: ${ep.requestBodyRef}Schema` : "",
+				needsHeaders ? "headers" : "",
+				needsCookies ? "cookies" : "",
+				`contentType: '${contentType}'`,
+			].filter(Boolean);
 
-			if (ep.queryParamsRef?.trim()) {
-				m.line(
-					`try { ${ep.queryParamsRef}Schema.parse(params); } catch (error: unknown) { return err(new ValidationError(formatError(error))); }`,
-				);
-			}
-
-			if (queryKeys.length > 0) {
-				m.line(
-					`[${queryKeys.join(", ")}].forEach((key) => { if (paramsRecord[key] !== undefined) queryParamsObj.append(key, String(paramsRecord[key])); });`,
-				);
-			}
-
-			if (ep.queryParamsRef?.trim()) {
-				const extraKeys = queryKeys.length > 0 ? `new Set([${queryKeys.join(", ")}])` : "new Set()";
-				m.line(
-					`const _explicitQueryKeys = ${extraKeys};`,
-				);
-				m.line(
-					"Object.entries(paramsRecord).forEach(([key, value]) => { if (value !== undefined && !_explicitQueryKeys.has(key)) queryParamsObj.append(key, String(value)); });",
-				);
-			}
-
-			m.line("const queryString = queryParamsObj.toString();");
-			m.line(
-				`const url = \`${pathTemplate}\` + (queryString ? "?" + queryString : "");`,
-			);
-
-			if (hasBody && ep.requestBodyRef?.trim()) {
-				m.line(
-					`if (body) { try { ${ep.requestBodyRef}Schema.parse(body); } catch (error: unknown) { return err(new ValidationError(formatError(error))); } }`,
-				);
-			}
-
-			if (hasBody) {
-				if (contentType === "multipart/form-data") {
-					m.line("const requestBody = body as any;");
-				} else if (contentType === "application/x-www-form-urlencoded") {
-					m.line(
-						"const requestBody = body ? new URLSearchParams(body as Record<string, string>).toString() : undefined;",
-					);
-				} else {
-					m.line(
-						"const requestBody = body ? JSON.stringify(body) : undefined;",
-					);
-				}
-			} else {
-				m.line("const requestBody = undefined;");
-			}
-
-			m.line(
-				`const mergedHeaders: Record<string, string> = { 'Content-Type': '${contentType}', ...headers };`,
-			);
-			m.line(
-				"if (cookies && Object.keys(cookies).length > 0) { mergedHeaders['Cookie'] = Object.entries(cookies).map(([k, v]) => k + '=' + v).join('; '); }",
-			);
-			m.line(
-				`return await httpAdapter.request<${responseType}>(url, { method: '${lowerMethod}', headers: mergedHeaders, body: requestBody });`,
-			);
+			m.line(`return await request<${responseType}, any>({`);
+			m.indent();
+			requestOptions.forEach((opt, i) => {
+				m.line(`${opt}${i === requestOptions.length - 1 ? "" : ","}`);
+			});
+			m.dedent();
+			m.line("});");
 		},
 	);
 }
@@ -239,10 +191,10 @@ export function generateClient(
 
 	services.forEach((eps, serviceName) => {
 		const serviceBuilder = new CodeBuilder();
-		serviceBuilder.line("import { httpAdapter } from '../http-adapter';");
-		serviceBuilder.line("import { ok, err, Result } from 'neverthrow';");
+		serviceBuilder.line("import { request } from '../request-helper';");
+		serviceBuilder.line("import { Result } from 'neverthrow';");
 		serviceBuilder.line(
-			"import { AppError, ValidationError, HttpError, AppErrorShape, ValidationErrorShape, HttpErrorShape, formatError } from '../errors';",
+			"import { AppError } from '../errors';",
 		);
 
 		const serviceTypeImports = new Set<string>();

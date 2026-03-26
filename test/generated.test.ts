@@ -138,9 +138,7 @@ describe("generated code", () => {
 		const service = generated["services/XService.ts"];
 
 		expect(service).toContain("body?: DeleteXDto");
-		expect(service).toContain(
-			"if (body) { try { DeleteXDtoSchema.parse(body); } catch (error: unknown) { return err(new ValidationError(formatError(error))); } }",
-		);
+		expect(service).toContain("bodySchema: DeleteXDtoSchema");
 	});
 
 	test("generateFromOpenAPI uses fetch adapter when requested", () => {
@@ -306,19 +304,20 @@ describe("generated code", () => {
 		expect(serviceAggregate).toMatch(/method:\s*['"](?:POST|post)['"]/);
 	});
 
-	test("query params handled in services", () => {
-		expect(serviceAggregate).toMatch(/queryParamsObj/);
-		expect(serviceAggregate).toMatch(/Schema\.parse\(params\)/);
+	test("query params handled in request helper", () => {
+		const helper = safeRead("request-helper.ts");
+		expect(helper).toMatch(/queryParamsObj/);
+		expect(helper).toMatch(/paramsSchema\.parse\(params\)/);
 	});
 
-	test("client uses formatError in services", () => {
-		const courses = safeRead("services/CoursesService.ts");
-		expect(courses).toContain("formatError");
+	test("client uses formatError in request helper", () => {
+		const helper = safeRead("request-helper.ts");
+		expect(helper).toContain("formatError");
 	});
 
 	test("content-type handled in services", () => {
 		const courses = safeRead("services/CoursesService.ts");
-		expect(courses).toMatch(/Content-Type': 'application\/json'/);
+		expect(courses).toMatch(/contentType: 'application\/json'/);
 	});
 
 	// --------------------------------------------------
