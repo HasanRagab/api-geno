@@ -193,12 +193,13 @@ export function generateErrors(
 		(f) => {
 			f.tryCatch(
 				(t) => {
-					t.if("!err", (b) => b.return(`'Unknown error'`));
+					t.if("!err", (b) => b.return("'Unknown error'"));
 					if (style !== "shape") {
-						t.raw(`
-if (err instanceof ValidationError) return err.message;
-if (err instanceof HttpError) return err.message;
-if (err instanceof AppError) return err.message || String(err);`);
+						t.if("err instanceof ValidationError", (b) => b.return("err.message"));
+						t.if("err instanceof HttpError", (b) => b.return("err.message"));
+						t.if("err instanceof AppError", (b) =>
+							b.return("err.message || String(err)"),
+						);
 					}
 					t.if("err && err.message", (b) => b.return("err.message"));
 					t.return("String(err)");

@@ -307,7 +307,7 @@ describe("generated code", () => {
 	test("query params handled in request helper", () => {
 		const helper = safeRead("request-helper.ts");
 		expect(helper).toMatch(/queryParamsObj/);
-		expect(helper).toMatch(/paramsSchema\.parse\(params\)/);
+		expect(helper).toMatch(/validateData\(paramsSchema, params\)/);
 	});
 
 	test("client uses formatError in request helper", () => {
@@ -317,7 +317,8 @@ describe("generated code", () => {
 
 	test("content-type handled in services", () => {
 		const courses = safeRead("services/CoursesService.ts");
-		expect(courses).toMatch(/contentType: 'application\/json'/);
+		// Since application/json is default, it should NOT be explicitly emitted by m.object()
+		expect(courses).not.toMatch(/contentType: 'application\/json'/);
 	});
 
 	// --------------------------------------------------

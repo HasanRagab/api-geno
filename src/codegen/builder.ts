@@ -281,6 +281,50 @@ export class CodeBuilder {
 		return this.line(`${target} = ${value};`);
 	}
 
+	/**
+	 * Emit an object literal, skipping `undefined` values.
+	 *
+	 * @example
+	 *   b.object({ name: "'Hasan'", age: "30", job: undefined })
+	 *   // → {
+	 *   //     name: 'Hasan',
+	 *   //     age: 30
+	 *   //   }
+	 */
+	object(fields: Record<string, string | undefined>) {
+		const entries = Object.entries(fields).filter(([_, v]) => v !== undefined);
+		if (entries.length === 0) return this.line("{}");
+
+		this.line("{");
+		this.indent();
+		entries.forEach(([k, v], i) => {
+			const comma = i < entries.length - 1 ? "," : "";
+			this.line(`${k}: ${v}${comma}`);
+		});
+		this.dedent();
+		return this.line("}");
+	}
+
+	/**
+	 * Emit a `const name: type = { ... }` object declaration.
+	 */
+	constObject(
+		name: string,
+		fields: Record<string, string | undefined>,
+		opts: { type?: string } = {},
+	) {
+		const typeAnnotation = opts.type ? `: ${opts.type}` : "";
+		this.line(`const ${name}${typeAnnotation} = {`);
+		this.indent();
+		const entries = Object.entries(fields).filter(([_, v]) => v !== undefined);
+		entries.forEach(([k, v], i) => {
+			const comma = i < entries.length - 1 ? "," : "";
+			this.line(`${k}: ${v}${comma}`);
+		});
+		this.dedent();
+		return this.line("};");
+	}
+
 	// ─── Statements ──────────────────────────────────────────────────────────────
 
 	return(value: string) {

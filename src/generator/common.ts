@@ -8,6 +8,103 @@ export function generateCommonHelper(): string {
     b.line("import { ValidationError, HttpError, formatError, AppError } from './errors';");
     b.blank();
 
+    // --- buildUrl helper ---
+    b.function(
+        "buildUrl",
+        { params: "path: string, params: Record<string, any>, explicitQueryKeys: string[]", returns: "string" },
+        (f) => {
+            f.line("const queryParamsObj = new URLSearchParams();");
+            f.line("const explicitKeysSet = new Set(explicitQueryKeys);");
+            f.blank();
+            f.line("explicitQueryKeys.forEach((key) => {");
+            f.indent();
+            f.line("if (params[key] !== undefined) {");
+            f.indent();
+            f.line("queryParamsObj.append(key, String(params[key]));");
+            f.dedent();
+            f.line("}");
+            f.dedent();
+            f.line("});");
+            f.blank();
+            f.line("Object.entries(params).forEach(([key, value]) => {");
+            f.indent();
+            f.line("if (value !== undefined && !explicitKeysSet.has(key)) {");
+            f.indent();
+            f.line("queryParamsObj.append(key, String(value));");
+            f.dedent();
+            f.line("}");
+            f.dedent();
+            f.line("});");
+            f.blank();
+            f.line("const queryString = queryParamsObj.toString();");
+            f.return("path + (queryString ? '?' + queryString : '')");
+        }
+    );
+    b.blank();
+
+    // --- validateData helper ---
+    b.function(
+        "validateData",
+        { params: "schema: z.ZodType<any> | undefined, data: any", returns: "Result<void, AppError>" },
+        (f) => {
+            f.if("!schema || !data", (b) => b.return("ok(undefined)"));
+            f.tryCatch(
+                (t) => {
+                    t.line("schema.parse(data);");
+                    t.return("ok(undefined)");
+                },
+                "error",
+                (c) => c.return("err(new ValidationError(formatError(error)) as any)")
+            );
+        }
+    );
+    b.blank();
+
+    // --- serializeBody helper ---
+    b.function(
+        "serializeBody",
+        { params: "body: any, contentType: string", returns: "any" },
+        (f) => {
+            f.if("!body", (b) => b.return("undefined"));
+            f.const("lowerContentType", "contentType.toLowerCase()");
+            f.if("lowerContentType.includes('application/json')", (b) => b.return("JSON.stringify(body)"));
+            f.if("lowerContentType.includes('application/x-www-form-urlencoded')", (b) => b.return("new URLSearchParams(body).toString()"));
+            f.if("lowerContentType.includes('multipart/form-data')", (b) => {
+                b.if("body instanceof FormData", (inner) => inner.return("body"));
+                b.const("formData", "new FormData()");
+                b.line("Object.entries(body as Record<string, any>).forEach(([key, value]) => {");
+                b.indent();
+                b.ifChain([
+                    { condition: "value instanceof FileList", body: (b) => b.line("for (let i = 0; i < value.length; i++) formData.append(key, value[i])") },
+                    { condition: "Array.isArray(value)", body: (b) => b.line("value.forEach(v => formData.append(key, v))") },
+                    { condition: "value !== undefined", body: (b) => b.line("formData.append(key, value)") }
+                ]);
+                b.dedent();
+                b.line("});");
+                b.return("formData");
+            });
+            f.return("body");
+        }
+    );
+    b.blank();
+
+    // --- getHeaders helper ---
+    b.function(
+        "getHeaders",
+        { params: "headers: Record<string, string>, cookies: Record<string, string>, contentType: string", returns: "Record<string, string>" },
+        (f) => {
+            f.const("mergedHeaders", "{ ...headers }");
+            f.if("contentType && !contentType.toLowerCase().includes('multipart/form-data')", (b) => {
+                b.assign("mergedHeaders['Content-Type']", "contentType");
+            });
+            f.if("cookies && Object.keys(cookies).length > 0", (b) => {
+                b.assign("mergedHeaders['Cookie']", "Object.entries(cookies).map(([k, v]) => k + '=' + v).join('; ')");
+            });
+            f.return("mergedHeaders");
+        }
+    );
+    b.blank();
+
     b.line("export async function request<T, P>(options: {");
     b.indent();
     b.line("path: string;");
@@ -38,97 +135,24 @@ export function generateCommonHelper(): string {
     b.dedent();
     b.line("} = options;");
     b.blank();
-    b.line("const queryParamsObj = new URLSearchParams();");
-    b.line("const paramsRecord = (params || {}) as Record<string, unknown>;");
+
+    b.const("paramsValidation", "await validateData(paramsSchema, params)");
+    b.if("paramsValidation.isErr()", (b) => b.return("err(paramsValidation.error)"));
     b.blank();
-    b.line("if (paramsSchema && params) {");
-    b.indent();
-    b.line("try {");
-    b.indent();
-    b.line("paramsSchema.parse(params);");
-    b.dedent();
-    b.line("} catch (error: unknown) {");
-    b.indent();
-    b.line("return err(new ValidationError(formatError(error)) as any);");
-    b.dedent();
-    b.line("}");
-    b.dedent();
-    b.line("}");
+
+    b.const("bodyValidation", "await validateData(bodySchema, body)");
+    b.if("bodyValidation.isErr()", (b) => b.return("err(bodyValidation.error)"));
     b.blank();
-    b.line("const explicitKeysSet = new Set(explicitQueryKeys);");
-    b.line("explicitQueryKeys.forEach((key) => {");
-    b.indent();
-    b.line("if (paramsRecord[key] !== undefined) {");
-    b.indent();
-    b.line("queryParamsObj.append(key, String(paramsRecord[key]));");
-    b.dedent();
-    b.line("}");
-    b.dedent();
-    b.line("});");
+
+    b.const("url", "buildUrl(path, (params || {}) as Record<string, any>, explicitQueryKeys)");
+    b.const("serializedBody", "serializeBody(body, contentType)");
+    b.const("finalHeaders", "getHeaders(headers || {}, cookies || {}, contentType)");
     b.blank();
-    b.line("Object.entries(paramsRecord).forEach(([key, value]) => {");
-    b.indent();
-    b.line("if (value !== undefined && !explicitKeysSet.has(key)) {");
-    b.indent();
-    b.line("queryParamsObj.append(key, String(value));");
-    b.dedent();
-    b.line("}");
-    b.dedent();
-    b.line("});");
-    b.blank();
-    b.line("const queryString = queryParamsObj.toString();");
-    b.line("const url = path + (queryString ? '?' + queryString : '');");
-    b.blank();
-    b.line("if (bodySchema && body) {");
-    b.indent();
-    b.line("try {");
-    b.indent();
-    b.line("bodySchema.parse(body);");
-    b.dedent();
-    b.line("} catch (error: unknown) {");
-    b.indent();
-    b.line("return err(new ValidationError(formatError(error)) as any);");
-    b.dedent();
-    b.line("}");
-    b.dedent();
-    b.line("}");
-    b.blank();
-    b.line("let serializedBody = body;");
-    b.line("if (body) {");
-    b.indent();
-    b.line("if (contentType === 'application/json') {");
-    b.indent();
-    b.line("serializedBody = JSON.stringify(body);");
-    b.dedent();
-    b.line("} else if (contentType === 'application/x-www-form-urlencoded') {");
-    b.indent();
-    b.line("serializedBody = new URLSearchParams(body as Record<string, string>).toString();");
-    b.dedent();
-    b.line("}");
-    b.dedent();
-    b.line("}");
-    b.blank();
-    b.line("const mergedHeaders: Record<string, string> = {");
-    b.indent();
-    b.line("'Content-Type': contentType,");
-    b.line("...headers");
-    b.dedent();
-    b.line("};");
-    b.blank();
-    b.line("if (cookies && Object.keys(cookies).length > 0) {");
-    b.indent();
-    b.line("mergedHeaders['Cookie'] = Object.entries(cookies)");
-    b.indent();
-    b.line(".map(([k, v]) => k + '=' + v)");
-    b.line(".join('; ');");
-    b.dedent();
-    b.dedent();
-    b.line("}");
-    b.blank();
+
     b.line("return await httpAdapter.request<T>(url, {");
     b.indent();
     b.line("method,");
-    b.line("headers: mergedHeaders,");
+    b.line("headers: finalHeaders,");
     b.line("body: serializedBody");
     b.dedent();
     b.line("});");

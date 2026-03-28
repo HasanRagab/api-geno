@@ -154,96 +154,97 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 	b.blank();
 
 	// ── httpAdapter export ───────────────────────────────────────
-	b.line(`export const httpAdapter: HttpAdapter = {`);
+	b.line("export const httpAdapter: HttpAdapter = {");
 	b.indent();
-	b.line("async request(url, options) {");
-	b.indent();
+	b.method("request", { async: true, params: "url, options" }, (m) => {
+		m.tryCatch(
+			(tryBody) => {
+				tryBody.const(
+					"{ finalUrl, finalHeaders }",
+					"await prepareRequest(url, options)",
+				);
+				tryBody.const(
+					"isFormData",
+					"typeof FormData !== 'undefined' && options.body instanceof FormData",
+				);
+				tryBody.const(
+					"headers",
+					"isFormData ? (() => { const h = { ...finalHeaders }; delete h['Content-Type']; return h; })() : finalHeaders",
+				);
+				tryBody.blank();
 
-	b.tryCatch(
-		(tryBody) => {
-			tryBody.const(
-				"{ finalUrl, finalHeaders }",
-				"await prepareRequest(url, options)",
-			);
-			tryBody.const(
-				"isFormData",
-				"typeof FormData !== 'undefined' && options.body instanceof FormData",
-			);
-			tryBody.const(
-				"headers",
-				`isFormData ? (() => { const h = { ...finalHeaders }; delete h['Content-Type']; return h; })() : finalHeaders`,
-			);
-			tryBody.blank();
+				if (adapter === "fetch") {
+					tryBody.line("const response = await fetch(finalUrl, {");
+					tryBody.indent();
+					tryBody.object({
+						method: "options.method || 'GET'",
+						headers: "headers",
+						body: "options.body",
+						credentials: "OpenAPI.WITH_CREDENTIALS ? 'include' : 'same-origin'",
+					});
+					tryBody.dedent();
+					tryBody.line("});");
 
-			if (adapter === "fetch") {
-				tryBody.const(
-					"response",
-					`await fetch(finalUrl, {
-          method: options.method || 'GET',
-          headers,
-          body: options.body,
-          credentials: OpenAPI.WITH_CREDENTIALS ? 'include' : 'same-origin',
-        })`,
-				);
-				tryBody.const("text", "await response.text()");
-				tryBody.const(
-					"contentType",
-					"(response.headers.get('content-type') || '').toLowerCase()",
-				);
-				tryBody.const(
-					"body",
-					"text ? (/(application\\/json|\\+json|\\/json)/i.test(contentType) ? safeParseJson(text) : text) : undefined",
-				);
-				tryBody.if("contentType && !/application\\/json|\\+json|\\/json|text\\//i.test(contentType)", (b) => {
-					b.const("blob", "await response.blob()");
-					b.return("ok(blob as any)");
-				});
-				tryBody.if("text && /application\\/json|\\+json|\\/json/i.test(contentType) && body === undefined", (b) =>
-					b.return(
-						"err(new HttpError(response.status, 'Failed to parse response JSON', null))",
-					),
-				);
-				tryBody.if("!response.ok", (b) =>
-					b.return(
-						"err(new HttpError(response.status, response.statusText, body))",
-					),
-				);
-				tryBody.return("ok(body as any)");
-			} else {
-				tryBody.const(
-					"response",
-					`await (OpenAPI.AXIOS_INSTANCE || axios)({
-          url: finalUrl,
-          method: options.method || "GET",
-          headers,
-          data: options.body,
-          withCredentials: OpenAPI.WITH_CREDENTIALS,
-          responseType: contentType && !/application\\/json|\\+json|\\/json|text\\//i.test(contentType) ? 'blob' : 'json',
-        })`,
-				);
-				tryBody.return("ok(response.data as any)");
-			}
-		},
-		"error: any",
-		(catchBody) => {
-			if (adapter === "fetch") {
-				catchBody.return(
-					"err(new HttpError(0, error.message || 'Network Error', null))",
-				);
-			} else {
-				catchBody.const("status", "error.response?.status || 0");
-				catchBody.const(
-					"statusText",
-					"error.response?.statusText || error.message",
-				);
-				catchBody.const("body", "error.response?.data");
-				catchBody.return("err(new HttpError(status, statusText, body))");
-			}
-		},
-	);
-
-	b.dedent();
-	b.line("}");
+					tryBody.const("text", "await response.text()");
+					tryBody.const(
+						"contentType",
+						"(response.headers.get('content-type') || '').toLowerCase()",
+					);
+					tryBody.const(
+						"body",
+						"text ? (/(application\\/json|\\+json|\\/json)/i.test(contentType) ? safeParseJson(text) : text) : undefined",
+					);
+					tryBody.if(
+						"contentType && !/application\\/json|\\+json|\\/json|text\\//i.test(contentType)",
+						(b) => {
+							b.const("blob", "await response.blob()");
+							b.return("ok(blob as any)");
+						},
+					);
+					tryBody.if(
+						"text && /application\\/json|\\+json|\\/json/i.test(contentType) && body === undefined",
+						(b) =>
+							b.return(
+								"err(new HttpError(response.status, 'Failed to parse response JSON', null))",
+							),
+					);
+					tryBody.if("!response.ok", (b) =>
+						b.return(
+							"err(new HttpError(response.status, response.statusText, body))",
+						),
+					);
+					tryBody.return("ok(body as any)");
+				} else {
+					tryBody.line("const response = await (OpenAPI.AXIOS_INSTANCE || axios)(");
+					tryBody.object({
+						url: "finalUrl",
+						method: 'options.method || "GET"',
+						headers: "headers",
+						data: "options.body",
+						withCredentials: "OpenAPI.WITH_CREDENTIALS",
+					});
+					tryBody.line(");");
+					tryBody.return("ok(response.data as any)");
+				}
+			},
+			"error: any",
+			(catchBody) => {
+				if (adapter === "fetch") {
+					catchBody.return(
+						"err(new HttpError(0, error.message || 'Network Error', null))",
+					);
+				} else {
+					catchBody.const("status", "error.response?.status || 0");
+					catchBody.const(
+						"statusText",
+						"error.response?.statusText || error.message",
+					);
+					catchBody.const("body", "error.response?.data");
+					catchBody.return("err(new HttpError(status, statusText, body))");
+				}
+			},
+		);
+	});
 	b.dedent();
 	b.line("};");
 

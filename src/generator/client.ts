@@ -104,35 +104,32 @@ function buildMethod(
 		methodName,
 		{ static: true, async: true, params: paramsDecl, returns: returnType },
 		(m) => {
-			if (optsParts.length > 0) {
-				const destructure: string[] = [];
-				if (hasParams) destructure.push("params");
-				if (hasBody) destructure.push("body");
-				if (needsHeaders) destructure.push("headers");
-				if (needsCookies) destructure.push("cookies");
+			const destructure: string[] = [];
+			if (hasParams) destructure.push("params");
+			if (hasBody) destructure.push("body");
+			if (needsHeaders) destructure.push("headers");
+			if (needsCookies) destructure.push("cookies");
+
+			if (destructure.length > 0) {
 				m.line(`const { ${destructure.join(", ")} } = opts;`);
 			}
 
-			const requestOptions = [
-				`path: \`${pathTemplate}\``,
-				`method: '${lowerMethod}'`,
-				hasParams ? "params" : "params: {}",
-				ep.queryParamsRef ? `paramsSchema: ${ep.queryParamsRef}Schema` : "",
-				queryKeys.length > 0 ? `explicitQueryKeys: [${queryKeys.join(", ")}]` : "",
-				hasBody && ep.requestBodyRef ? `body: body` : "",
-				hasBody && ep.requestBodyRef ? `bodySchema: ${ep.requestBodyRef}Schema` : "",
-				needsHeaders ? "headers" : "",
-				needsCookies ? "cookies" : "",
-				`contentType: '${contentType}'`,
-			].filter(Boolean);
-
-			m.line(`return await request<${responseType}, any>({`);
-			m.indent();
-			requestOptions.forEach((opt, i) => {
-				m.line(`${opt}${i === requestOptions.length - 1 ? "" : ","}`);
+			m.line(`return await request<${responseType}, any>(`);
+			m.object({
+				path: `\`${pathTemplate}\``,
+				method: `'${lowerMethod}'`,
+				params: hasParams ? "params" : undefined,
+				paramsSchema: ep.queryParamsRef ? `${ep.queryParamsRef}Schema` : undefined,
+				explicitQueryKeys:
+					queryKeys.length > 0 ? `[${queryKeys.join(", ")}]` : undefined,
+				body: hasBody && ep.requestBodyRef ? "body" : undefined,
+				bodySchema:
+					hasBody && ep.requestBodyRef ? `${ep.requestBodyRef}Schema` : undefined,
+				headers: needsHeaders ? "headers" : undefined,
+				cookies: needsCookies ? "cookies" : undefined,
+				contentType: contentType !== "application/json" ? `'${contentType}'` : undefined,
 			});
-			m.dedent();
-			m.line("});");
+			m.line(");");
 		},
 	);
 }
@@ -144,11 +141,20 @@ export function generateClient(
 	const errorStyle = options.errorStyle || "both";
 	const errorTypeName = errorStyle === "shape" ? "AppErrorShape" : "AppError";
 
-	const rootLines: string[] = [];
-	rootLines.push("import { httpAdapter } from './http-adapter';");
-	rootLines.push("import { ok, err, Result } from 'neverthrow';");
-	rootLines.push(
-		"import { AppError, ValidationError, HttpError, AppErrorShape, ValidationErrorShape, HttpErrorShape, formatError } from './errors';",
+	const rootBuilder = new CodeBuilder();
+	rootBuilder.import(["httpAdapter"], "./http-adapter");
+	rootBuilder.import(["ok", "err", { name: "Result" }], "neverthrow");
+	rootBuilder.import(
+		[
+			"AppError",
+			"ValidationError",
+			"HttpError",
+			"AppErrorShape",
+			"ValidationErrorShape",
+			"HttpErrorShape",
+			"formatError",
+		],
+		"./errors",
 	);
 
 	const typeImports = new Set<string>();
@@ -165,7 +171,7 @@ export function generateClient(
 
 	if (typeImports.size || validatorImports.size) {
 		const all = Array.from(new Set([...typeImports, ...validatorImports]));
-		rootLines.push(`import { ${all.join(", ")} } from './types';`);
+		rootBuilder.import(all, "./types");
 	}
 
 	const services = new Map<string, Endpoint[]>();
@@ -178,24 +184,21 @@ export function generateClient(
 	// Root client is a facade with re-exports only; actual implementation goes to services/<Service>.ts
 	const serviceNames = Array.from(services.keys()).sort();
 	serviceNames.forEach((serviceName) => {
-		rootLines.push(
-			`import { ${serviceName} } from './services/${serviceName}';`,
-		);
+		rootBuilder.import([serviceName], `./services/${serviceName}`);
 	});
+
 	if (serviceNames.length > 0) {
-		rootLines.push("", `export { ${serviceNames.join(", ")} };`);
+		rootBuilder.blank().export(serviceNames);
 	}
 
 	const files: Record<string, string> = {};
-	files["client.ts"] = rootLines.join("\n");
+	files["client.ts"] = rootBuilder.toString();
 
 	services.forEach((eps, serviceName) => {
 		const serviceBuilder = new CodeBuilder();
-		serviceBuilder.line("import { request } from '../request-helper';");
-		serviceBuilder.line("import { Result } from 'neverthrow';");
-		serviceBuilder.line(
-			"import { AppError } from '../errors';",
-		);
+		serviceBuilder.import(["request"], "../request-helper");
+		serviceBuilder.import([{ name: "Result" }], "neverthrow");
+		serviceBuilder.import([errorTypeName], "../errors");
 
 		const serviceTypeImports = new Set<string>();
 		const serviceValidatorImports = new Set<string>();
@@ -228,9 +231,7 @@ export function generateClient(
 		Array.from(serviceImports.entries())
 			.sort((a, b) => a[0].localeCompare(b[0]))
 			.forEach(([fileName, names]) => {
-				serviceBuilder.line(
-					`import { ${Array.from(names).sort().join(", ")} } from '../types/${fileName}';`,
-				);
+				serviceBuilder.import(Array.from(names).sort(), `../types/${fileName}`);
 			});
 
 		serviceBuilder.classBlock(serviceName, (cls) => {
