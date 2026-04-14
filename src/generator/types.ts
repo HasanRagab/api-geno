@@ -43,6 +43,7 @@ function collectSchemaRefs(
 
 export function generateTypes(
 	schemas: Record<string, Schema>,
+	options: { noZod?: boolean; flat?: boolean } = {},
 ): Record<string, string> {
 	const files: Record<string, string> = {};
 
@@ -53,11 +54,17 @@ export function generateTypes(
 		);
 		const builder = new CodeBuilder();
 
-		builder.import(["z"], "zod");
+		if (!options.noZod) {
+			builder.import(["z"], "zod");
+		}
 
-		refs.forEach((ref) =>
-			builder.line(`import { ${ref}Schema, ${ref} } from './${ref}';`),
-		);
+		refs.forEach((ref) => {
+			if (!options.noZod) {
+				builder.line(`import { ${ref}Schema, ${ref} } from './${ref}';`);
+			} else {
+				builder.line(`import { ${ref} } from './${ref}';`);
+			}
+		});
 		builder.blank();
 		const docLines: string[] = [];
 		if (schema.description) docLines.push(...schema.description.split("\n"));
@@ -66,16 +73,21 @@ export function generateTypes(
 			docLines.push("@deprecated");
 		}
 		if (docLines.length > 0) builder.docComment(docLines);
-		builder.line(buildZodSchema(name, schema));
-		builder.line(`export type ${name} = z.infer<typeof ${name}Schema>;`);
+		if (!options.noZod) {
+			builder.line(buildZodSchema(name, schema));
+			builder.line(`export type ${name} = z.infer<typeof ${name}Schema>;`);
+		} else {
+			// Basic type generation if no zod (fallback to simple interface-like type)
+			builder.line(`export type ${name} = any; // TODO: implement full type gen without zod`);
+		}
 
-		files[`types/${name}.ts`] = builder.toString();
+		files[options.flat ? `${name}.ts` : `types/${name}.ts`] = builder.toString();
 	});
 
 	// root aggregator
 	const rootBuilder = new CodeBuilder();
 	Object.keys(schemas).forEach((name) =>
-		rootBuilder.line(`export * from './types/${name}';`),
+		rootBuilder.line(`export * from '${options.flat ? `./${name}` : `./types/${name}`}';`),
 	);
 
 	files["types.ts"] = rootBuilder.toString();

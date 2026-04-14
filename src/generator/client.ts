@@ -84,6 +84,7 @@ function buildMethod(
 	if (hasBody) optsParts.push(`body?: ${bodyType}`);
 	if (needsHeaders) optsParts.push("headers?: Record<string, string>");
 	if (needsCookies) optsParts.push("cookies?: Record<string, string>");
+	optsParts.push("validationMode?: 'strict' | 'warn' | 'none'");
 
 	const paramsDecl =
 		optsParts.length > 0 ? `opts: { ${optsParts.join("; ")} } = {}` : "";
@@ -109,6 +110,7 @@ function buildMethod(
 			if (hasBody) destructure.push("body");
 			if (needsHeaders) destructure.push("headers");
 			if (needsCookies) destructure.push("cookies");
+			destructure.push("validationMode");
 
 			if (destructure.length > 0) {
 				m.line(`const { ${destructure.join(", ")} } = opts;`);
@@ -128,6 +130,8 @@ function buildMethod(
 				headers: needsHeaders ? "headers" : undefined,
 				cookies: needsCookies ? "cookies" : undefined,
 				contentType: contentType !== "application/json" ? `'${contentType}'` : undefined,
+				security: ep.security ? JSON.stringify(ep.security) : undefined,
+				validationMode,
 			});
 			m.line(");");
 		},
@@ -136,10 +140,15 @@ function buildMethod(
 
 export function generateClient(
 	endpoints: Endpoint[],
-	options: { errorStyle?: "class" | "shape" | "both" } = {},
+	options: {
+		errorStyle?: "class" | "shape" | "both";
+		splitServices?: boolean;
+		flat?: boolean;
+	} = {},
 ): Record<string, string> {
 	const errorStyle = options.errorStyle || "both";
 	const errorTypeName = errorStyle === "shape" ? "AppErrorShape" : "AppError";
+	const splitServices = options.splitServices !== false;
 
 	const rootBuilder = new CodeBuilder();
 	rootBuilder.import(["httpAdapter"], "./http-adapter");
@@ -171,20 +180,27 @@ export function generateClient(
 
 	if (typeImports.size || validatorImports.size) {
 		const all = Array.from(new Set([...typeImports, ...validatorImports]));
-		rootBuilder.import(all, "./types");
+		rootBuilder.import(all, options.flat ? "./types" : "./types");
 	}
 
 	const services = new Map<string, Endpoint[]>();
-	endpoints.forEach((ep) => {
-		const name = getServiceName(ep.tags);
-		if (!services.has(name)) services.set(name, []);
-		services.get(name)?.push(ep);
-	});
+	if (splitServices) {
+		endpoints.forEach((ep) => {
+			const name = getServiceName(ep.tags);
+			if (!services.has(name)) services.set(name, []);
+			services.get(name)?.push(ep);
+		});
+	} else {
+		services.set("ApiService", endpoints);
+	}
 
 	// Root client is a facade with re-exports only; actual implementation goes to services/<Service>.ts
 	const serviceNames = Array.from(services.keys()).sort();
 	serviceNames.forEach((serviceName) => {
-		rootBuilder.import([serviceName], `./services/${serviceName}`);
+		rootBuilder.import(
+			[serviceName],
+			options.flat ? `./${serviceName}` : `./services/${serviceName}`,
+		);
 	});
 
 	if (serviceNames.length > 0) {
@@ -194,11 +210,39 @@ export function generateClient(
 	const files: Record<string, string> = {};
 	files["client.ts"] = rootBuilder.toString();
 
+	// Add ApiService facade
+	const apiServiceBuilder = new CodeBuilder();
+	serviceNames.forEach((serviceName) => {
+		apiServiceBuilder.import(
+			[serviceName],
+			options.flat ? `./${serviceName}` : `./services/${serviceName}`,
+		);
+	});
+	apiServiceBuilder.blank();
+	apiServiceBuilder.classBlock("ApiService", (cls) => {
+		serviceNames.forEach((serviceName) => {
+			const propName =
+				serviceName.charAt(0).toLowerCase() +
+				serviceName.slice(1).replace(/Service$/, "");
+			cls.field(propName, serviceName, {
+				static: true,
+				value: `new ${serviceName}()`,
+			});
+		});
+	});
+	apiServiceBuilder.blank();
+	apiServiceBuilder.line("export const api = ApiService;");
+
+	files["client.ts"] = rootBuilder.toString() + "\n\n" + apiServiceBuilder.toString();
+
 	services.forEach((eps, serviceName) => {
 		const serviceBuilder = new CodeBuilder();
-		serviceBuilder.import(["request"], "../request-helper");
+		serviceBuilder.import(
+			["request"],
+			options.flat ? "./request-helper" : "../request-helper",
+		);
 		serviceBuilder.import([{ name: "Result" }], "neverthrow");
-		serviceBuilder.import([errorTypeName], "../errors");
+		serviceBuilder.import([errorTypeName], options.flat ? "./errors" : "../errors");
 
 		const serviceTypeImports = new Set<string>();
 		const serviceValidatorImports = new Set<string>();
@@ -231,7 +275,10 @@ export function generateClient(
 		Array.from(serviceImports.entries())
 			.sort((a, b) => a[0].localeCompare(b[0]))
 			.forEach(([fileName, names]) => {
-				serviceBuilder.import(Array.from(names).sort(), `../types/${fileName}`);
+				serviceBuilder.import(
+					Array.from(names).sort(),
+					options.flat ? `./${fileName}` : `../types/${fileName}`,
+				);
 			});
 
 		serviceBuilder.classBlock(serviceName, (cls) => {
@@ -239,7 +286,8 @@ export function generateClient(
 			eps.forEach((ep) => buildMethod(cls, ep, errorTypeName, methodNames));
 		});
 
-		files[`services/${serviceName}.ts`] = serviceBuilder.toString();
+		files[options.flat ? `${serviceName}.ts` : `services/${serviceName}.ts`] =
+			serviceBuilder.toString();
 	});
 
 	return files;

@@ -46,6 +46,8 @@ export interface Response {
 	content?: Record<string, { schema: Schema }>;
 }
 
+export type SecurityRequirement = Record<string, string[]>;
+
 export interface Endpoint {
 	path: string;
 	method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HEAD";
@@ -64,6 +66,18 @@ export interface Endpoint {
 
 	responses: Record<string, Response>;
 	deprecated?: boolean;
+	security?: SecurityRequirement[];
+}
+
+export interface SecurityScheme {
+	type: "apiKey" | "http" | "oauth2" | "openIdConnect";
+	description?: string;
+	name?: string; // for apiKey
+	in?: "header" | "query" | "cookie"; // for apiKey
+	scheme?: string; // for http (e.g. bearer)
+	bearerFormat?: string; // for http
+	flows?: any; // for oauth2
+	openIdConnectUrl?: string; // for openIdConnect
 }
 
 export interface OpenAPIModel {
@@ -72,5 +86,7 @@ export interface OpenAPIModel {
 	base?: string;
 	components?: {
 		schemas: Record<string, Schema>;
+		securitySchemes?: Record<string, SecurityScheme>;
 	};
+	security?: SecurityRequirement[];
 }

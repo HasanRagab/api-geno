@@ -39,6 +39,12 @@ program
 		"Http adapter to generate (axios|fetch)",
 		"axios",
 	)
+	.option("--flat", "Generate all files in a single flat directory", false)
+	.option("--no-zod", "Do not generate zod validation schemas", false)
+	.option("--split-services", "Split endpoints into multiple service files (default)", true)
+	.option("--no-split-services", "Generate all endpoints in a single ApiService")
+	.option("--format", "Format generated code using biome or prettier if available", false)
+	.option("--report", "Generate a schema coverage report", false)
 	.option("-w, --watch", "Watch input file for changes and regenerate")
 	.action(async (opts: any, cmd: any) => {
 		const options = typeof cmd?.opts === "function" ? cmd.opts() : opts;
@@ -72,6 +78,9 @@ program
 			const httpAdapter = mergedOptions.httpAdapter || "axios";
 			const skipGeneratedOutputs = !!mergedOptions.skipGeneratedOutputs;
 			const forceRegen = !!mergedOptions.force;
+			const flat = !!mergedOptions.flat;
+			const noZod = !!mergedOptions.noZod;
+			const splitServices = mergedOptions.splitServices !== false;
 
 			if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
@@ -86,6 +95,10 @@ program
 						httpAdapter,
 						emitOnlyShapes: !!mergedOptions.emitOnlyShapes,
 						skipGeneratedOutputs,
+						flat,
+						noZod,
+						splitServices,
+						report: !!mergedOptions.report,
 					}),
 				)
 				.digest("hex");
@@ -105,6 +118,10 @@ program
 			const files = generateFromOpenAPI(inputFile, [], {
 				errorStyle,
 				httpAdapter,
+				flat,
+				noZod,
+				splitServices,
+				report: !!mergedOptions.report,
 			});
 
 			if (skipGeneratedOutputs) {
@@ -125,6 +142,23 @@ program
 
 			fs.writeFileSync(hashPath, hash, "utf8");
 			console.log("Generation complete.");
+
+			if (mergedOptions.format) {
+				const { execSync } = await import("child_process");
+				console.log("Formatting generated code...");
+				try {
+					// Prefer biome if available as it is faster
+					try {
+						execSync(`npx biome format --write ${outputDir}`, { stdio: "inherit" });
+					} catch (e) {
+						// Fallback to prettier
+						execSync(`npx prettier --write ${outputDir}/**/*.{ts,js,json}`, { stdio: "inherit" });
+					}
+					console.log("Formatting complete.");
+				} catch (err: any) {
+					console.warn(`Warning: Formatting failed: ${err.message}`);
+				}
+			}
 		};
 
 		await runGeneration().catch(err => {

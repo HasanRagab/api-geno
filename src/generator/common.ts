@@ -45,16 +45,22 @@ export function generateCommonHelper(): string {
     // --- validateData helper ---
     b.function(
         "validateData",
-        { params: "schema: z.ZodType<any> | undefined, data: any", returns: "Result<void, AppError>" },
+        { params: "schema: z.ZodType<any> | undefined, data: any, mode: 'strict' | 'warn' | 'none' = 'strict'", returns: "Result<void, AppError>" },
         (f) => {
-            f.if("!schema || !data", (b) => b.return("ok(undefined)"));
+            f.if("!schema || !data || mode === 'none'", (b) => b.return("ok(undefined)"));
             f.tryCatch(
                 (t) => {
                     t.line("schema.parse(data);");
                     t.return("ok(undefined)");
                 },
                 "error",
-                (c) => c.return("err(new ValidationError(formatError(error)) as any)")
+                (c) => {
+                    c.if("mode === 'warn'", (inner) => {
+                        inner.line("console.warn('Validation warning:', formatError(error));");
+                        inner.return("ok(undefined)");
+                    });
+                    c.return("err(new ValidationError(formatError(error)) as any)");
+                }
             );
         }
     );
@@ -117,8 +123,11 @@ export function generateCommonHelper(): string {
     b.line("headers?: Record<string, string>;");
     b.line("cookies?: Record<string, string>;");
     b.line("contentType?: string;");
+    b.line("security?: Record<string, string[]>[];");
+    b.line("validationMode?: 'strict' | 'warn' | 'none';");
     b.dedent();
     b.line("}): Promise<Result<T, AppError>> {");
+
     b.indent();
     b.line("const {");
     b.indent();
@@ -131,18 +140,21 @@ export function generateCommonHelper(): string {
     b.line("body,");
     b.line("headers = {},");
     b.line("cookies = {},");
-    b.line("contentType = 'application/json'");
+    b.line("contentType = 'application/json',");
+    b.line("security = [],");
+    b.line("validationMode = 'strict'");
     b.dedent();
     b.line("} = options;");
     b.blank();
 
-    b.const("paramsValidation", "await validateData(paramsSchema, params)");
+    b.const("paramsValidation", "await validateData(paramsSchema, params, validationMode)");
     b.if("paramsValidation.isErr()", (b) => b.return("err(paramsValidation.error)"));
     b.blank();
 
-    b.const("bodyValidation", "await validateData(bodySchema, body)");
+    b.const("bodyValidation", "await validateData(bodySchema, body, validationMode)");
     b.if("bodyValidation.isErr()", (b) => b.return("err(bodyValidation.error)"));
     b.blank();
+
 
     b.const("url", "buildUrl(path, (params || {}) as Record<string, any>, explicitQueryKeys)");
     b.const("serializedBody", "serializeBody(body, contentType)");
@@ -153,7 +165,8 @@ export function generateCommonHelper(): string {
     b.indent();
     b.line("method,");
     b.line("headers: finalHeaders,");
-    b.line("body: serializedBody");
+    b.line("body: serializedBody,");
+    b.line("security");
     b.dedent();
     b.line("});");
     b.dedent();

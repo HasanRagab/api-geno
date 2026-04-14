@@ -7,6 +7,7 @@ import { generateCommonHelper } from "./generator/common";
 import type { OpenAPIModel } from "./models";
 import { parseOpenAPI } from "./parser/openapi";
 import type { GeneratorPlugin } from "./plugins/plugin";
+import { generateCoverageReport } from "./generator/utils";
 
 function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 	const b = new CodeBuilder();
@@ -68,6 +69,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 			f.const("username", "await resolveValue(OpenAPI.USERNAME)");
 			f.const("password", "await resolveValue(OpenAPI.PASSWORD)");
 			f.const("headers", "await resolveValue(OpenAPI.HEADERS)");
+			f.const("security", "options.security || []");
 			f.blank();
 			f.let(
 				"finalUrl",
@@ -174,7 +176,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 				tryBody.blank();
 
 				if (adapter === "fetch") {
-					tryBody.line("const response = await fetch(finalUrl, {");
+					tryBody.line("const response = await fetch(finalUrl,");
 					tryBody.indent();
 					tryBody.object({
 						method: "options.method || 'GET'",
@@ -183,7 +185,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 						credentials: "OpenAPI.WITH_CREDENTIALS ? 'include' : 'same-origin'",
 					});
 					tryBody.dedent();
-					tryBody.line("});");
+					tryBody.line(");");
 
 					tryBody.const("text", "await response.text()");
 					tryBody.const(
@@ -216,13 +218,17 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 					tryBody.return("ok(body as any)");
 				} else {
 					tryBody.line("const response = await (OpenAPI.AXIOS_INSTANCE || axios)(");
+					tryBody.indent();
 					tryBody.object({
 						url: "finalUrl",
 						method: 'options.method || "GET"',
 						headers: "headers",
 						data: "options.body",
 						withCredentials: "OpenAPI.WITH_CREDENTIALS",
+						responseType:
+							"contentType && !/application\\/json|\\+json|\\/json|text\\//i.test(contentType) ? 'blob' : 'json'",
 					});
+					tryBody.dedent();
 					tryBody.line(");");
 					tryBody.return("ok(response.data as any)");
 				}
@@ -257,6 +263,10 @@ export function generateFromOpenAPI(
 	options: {
 		errorStyle?: "class" | "shape" | "both";
 		httpAdapter?: "axios" | "fetch";
+		flat?: boolean;
+		noZod?: boolean;
+		splitServices?: boolean;
+		report?: boolean;
 	} = {},
 ): Record<string, string> {
 	const api: OpenAPIModel = parseOpenAPI(filePath);
@@ -276,9 +286,11 @@ export function generateFromOpenAPI(
 			);
 	});
 
-	const typesFiles = generateTypes(api.schemas);
+	const typesFiles = generateTypes(api.schemas, { noZod: options.noZod, flat: options.flat });
 	const clientFiles = generateClient(api.endpoints, {
 		errorStyle: options.errorStyle,
+		splitServices: options.splitServices !== false,
+		flat: options.flat,
 	});
 	const errorsCode = generateErrors(options.errorStyle || "both");
 
@@ -291,7 +303,7 @@ export function generateFromOpenAPI(
 	// Build http-adapter.ts with CodeBuilder (calls generateHttpAdapter above)
 	const adapterCode = generateHttpAdapter(options.httpAdapter ?? "axios");
 
-	const files: Record<string, string> = {
+	const rawFiles: Record<string, string> = {
 		...typesFiles,
 		...clientFiles,
 		"http-adapter.ts": adapterCode,
@@ -299,6 +311,27 @@ export function generateFromOpenAPI(
 		"openapi.config.ts": configBuilder.toString(),
 		"request-helper.ts": generateCommonHelper(),
 	};
+
+	if (options.report) {
+		rawFiles["coverage-report.md"] = generateCoverageReport(api, rawFiles);
+	}
+
+	const files: Record<string, string> = {};
+	if (options.flat) {
+		for (const [name, content] of Object.entries(rawFiles)) {
+			// Flatten paths: services/Foo.ts -> Foo.ts, types/Bar.ts -> Bar.ts
+			const flatName = name.split("/").pop() || name;
+			files[flatName] = content
+				// Update imports for flat structure
+				.replace(/\.\.\/types\//g, "./")
+				.replace(/\.\.\/request-helper/g, "./request-helper")
+				.replace(/\.\.\/errors/g, "./errors")
+				.replace(/\.\/services\//g, "./")
+				.replace(/\.\/types\//g, "./");
+		}
+	} else {
+		Object.assign(files, rawFiles);
+	}
 
 	plugins.forEach((p) => p.afterGenerate?.(files, api));
 	return files;

@@ -100,6 +100,7 @@ function parseV3(spec: unknown): OpenAPIModel {
 					? (d.responses as Record<string, Response>)
 					: {},
 				responseRef,
+				security: Array.isArray(d.security) ? (d.security as Record<string, string[]>[]) : undefined,
 			});
 		}
 	}
@@ -116,7 +117,16 @@ function parseV3(spec: unknown): OpenAPIModel {
 
 	createQuerySchemaReference(endpoints, normalizedSchemas);
 
-	return { endpoints, schemas: normalizedSchemas, base };
+	return {
+		endpoints,
+		schemas: normalizedSchemas,
+		base,
+		components: {
+			schemas: normalizedSchemas,
+			securitySchemes: isObject(spec.components) && isObject(spec.components.securitySchemes) ? (spec.components.securitySchemes as any) : undefined,
+		},
+		security: Array.isArray(spec.security) ? (spec.security as any) : undefined,
+	};
 }
 
 function parseV2(spec: unknown): OpenAPIModel {
@@ -204,6 +214,7 @@ function parseV2(spec: unknown): OpenAPIModel {
 					? (d.responses as Record<string, Response>)
 					: {},
 				responseRef,
+				security: Array.isArray(d.security) ? (d.security as Record<string, string[]>[]) : undefined,
 			});
 		}
 	}
@@ -217,7 +228,16 @@ function parseV2(spec: unknown): OpenAPIModel {
 
 	createQuerySchemaReference(endpoints, normalizedSchemas);
 
-	return { endpoints, schemas: normalizedSchemas, base };
+	return {
+		endpoints,
+		schemas: normalizedSchemas,
+		base,
+		components: {
+			schemas: normalizedSchemas,
+			securitySchemes: isObject(spec.securityDefinitions) ? (spec.securityDefinitions as any) : undefined,
+		},
+		security: Array.isArray(spec.security) ? (spec.security as any) : undefined,
+	};
 }
 
 export function parseOpenAPI(filePath: string): OpenAPIModel {

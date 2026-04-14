@@ -38,14 +38,34 @@ export function getOperationIdOrFallback(endpoint: Endpoint): string {
 	return `${endpoint.method.toLowerCase()}_${safePath || "root"}`;
 }
 
-export function safeMethodName(endpoint: Endpoint, used: Set<string>): string {
-	const base = sanitizeIdentifier(getOperationIdOrFallback(endpoint));
-	let candidate = base;
-	let suffix = 1;
-	while (used.has(candidate)) {
-		candidate = `${base}${suffix}`;
-		suffix += 1;
-	}
-	used.add(candidate);
-	return candidate;
+export function generateCoverageReport(
+	api: any,
+	files: Record<string, string>,
+): string {
+	const totalEndpoints = api.endpoints.length;
+	const totalSchemas = Object.keys(api.schemas).length;
+	const generatedTypes = Object.keys(files).filter((f) =>
+		f.startsWith("types/"),
+	).length;
+	const generatedServices = Object.keys(files).filter((f) =>
+		f.startsWith("services/"),
+	).length;
+
+	const report = [
+		"# API Generation Coverage Report",
+		"",
+		"## Summary",
+		`- Total Endpoints: ${totalEndpoints}`,
+		`- Total Schemas: ${totalSchemas}`,
+		`- Generated Types: ${generatedTypes}`,
+		`- Generated Services: ${generatedServices}`,
+		"",
+		"## Details",
+		`- Coverage: ${((generatedTypes / totalSchemas) * 100).toFixed(2)}% of schemas generated.`,
+		"",
+		"---",
+		`Report generated on ${new Date().toISOString()}`,
+	];
+
+	return report.join("\n");
 }
