@@ -1,4 +1,4 @@
-import type { Endpoint } from "../models";
+import type { Endpoint, OpenAPIModel } from "../models";
 
 export function sanitizeIdentifier(value: string): string {
 	const cleaned = value
@@ -39,7 +39,7 @@ export function getOperationIdOrFallback(endpoint: Endpoint): string {
 }
 
 export function generateCoverageReport(
-	api: any,
+	api: OpenAPIModel,
 	files: Record<string, string>,
 ): string {
 	const totalEndpoints = api.endpoints.length;

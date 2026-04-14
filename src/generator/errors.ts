@@ -195,7 +195,9 @@ export function generateErrors(
 				(t) => {
 					t.if("!err", (b) => b.return("'Unknown error'"));
 					if (style !== "shape") {
-						t.if("err instanceof ValidationError", (b) => b.return("err.message"));
+						t.if("err instanceof ValidationError", (b) =>
+							b.return("err.message"),
+						);
 						t.if("err instanceof HttpError", (b) => b.return("err.message"));
 						t.if("err instanceof AppError", (b) =>
 							b.return("err.message || String(err)"),

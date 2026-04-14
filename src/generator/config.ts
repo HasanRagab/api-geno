@@ -21,10 +21,13 @@ export type OpenAPIConfig = {
 	API_KEY_NAME?: string;
 	API_KEY_IN?: "header" | "query";
 	ENCODE_PATH?: (path: string) => string;
-	AXIOS_INSTANCE?: any;
+	AXIOS_INSTANCE?: unknown;
 };
 
-export function generateConfig(base = "http://localhost:4000", version = "1.0.0"): string {
+export function generateConfig(
+	base = "http://localhost:4000",
+	version = "1.0.0",
+): string {
 	const b = new CodeBuilder();
 	b.line("export const OpenAPI: OpenAPIConfig = {");
 	b.indent();
@@ -72,7 +75,7 @@ export function generateConfigTypes(): string {
 	b.line("API_KEY_NAME?: string;");
 	b.line("API_KEY_IN?: 'header' | 'query';");
 	b.line("ENCODE_PATH?: (path: string) => string;");
-	b.line("AXIOS_INSTANCE?: any;");
+	b.line("AXIOS_INSTANCE?: unknown;");
 	b.dedent();
 	b.line("};");
 	return b.toString();

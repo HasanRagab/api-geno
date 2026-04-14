@@ -52,7 +52,9 @@ export class CodeBuilder {
 	 * Useful as an escape hatch when no structured method fits.
 	 */
 	raw(text: string) {
-		text.split("\n").forEach((l) => this.line(l));
+		for (const l of text.split("\n")) {
+			this.line(l);
+		}
 		return this;
 	}
 
@@ -110,7 +112,9 @@ export class CodeBuilder {
 
 	docComment(lines: string[]) {
 		this.line("/**");
-		lines.forEach((l) => this.line(` * ${l}`));
+		for (const l of lines) {
+			this.line(` * ${l}`);
+		}
 		return this.line(" */");
 	}
 

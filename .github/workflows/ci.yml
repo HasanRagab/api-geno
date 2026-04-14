@@ -1,21 +1,16 @@
-name: CI & Auto Release
+name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
-    branches: [ main, master ]
-
-permissions:
-  contents: write
+    branches: [main, master]
 
 jobs:
-  build-test-release:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Cache Bun
         uses: actions/cache@v4
@@ -31,15 +26,21 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
-      - name: Build TypeScript
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run check
+
+      - name: Build
         run: bun run build
 
       - name: Regenerate generated files
         run: bun dist/cli.js generate -i api.json -o ./generated
 
-      - name: Run tests
+      - name: Test
         run: bun test
 
       - name: Compile standalone CLI
@@ -47,50 +48,3 @@ jobs:
           mkdir -p release
           bun run release
           chmod +x release/api-geno
-
-      # -------------------------------
-      # Auto-version bump
-      # -------------------------------
-      - name: Auto Bump Version
-        if: github.event_name == 'push'
-        id: version
-        run: |
-          # Read current version from package.json
-          CURRENT=$(node -p "require('./package.json').version")
-
-          # Simple semver bump: patch
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          PATCH=$((PATCH+1))
-          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
-          echo "New version: $NEW_VERSION"
-
-          # Write bumped version back into package.json
-          npm version "$NEW_VERSION" --no-git-tag-version
-
-          # Export for downstream steps
-          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-
-          # Commit and push
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add package.json
-          # also stage package-lock.json / bun.lock if they exist
-          git add package-lock.json bun.lock 2>/dev/null || true
-          git commit -m "Bump version to $NEW_VERSION [skip ci]"
-          git tag "v$NEW_VERSION"
-          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD --tags
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # -------------------------------
-      # Upload build to GitHub Release
-      # -------------------------------
-      - name: Create GitHub Release
-        if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: "v${{ steps.version.outputs.new_version }}"
-          name: "Release v${{ steps.version.outputs.new_version }}"
-          files: release/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

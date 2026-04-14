@@ -1,5 +1,5 @@
 import { CodeBuilder } from "../codegen/builder";
-import type { Endpoint } from "../models";
+import type { Endpoint, Schema } from "../models";
 import { safeMethodName } from "./utils";
 
 function toMethodName(endpoint: Endpoint, usedNames: Set<string>) {
@@ -9,18 +9,16 @@ function toMethodName(endpoint: Endpoint, usedNames: Set<string>) {
 function getServiceName(tags?: string[]) {
 	if (tags && tags.length > 0) {
 		const tag = tags[0].replace(/[-_\s]+/g, " ");
-		return (
-			tag
-				.split(" ")
-				.filter(Boolean)
-				.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-				.join("") + "Service"
-		);
+		return `${tag
+			.split(" ")
+			.filter(Boolean)
+			.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+			.join("")}Service`;
 	}
 	return "ApiService";
 }
 
-function schemaToTS(schema: any): string {
+function schemaToTS(schema: Schema | undefined): string {
 	if (!schema) return "unknown";
 	if (schema.$ref) return schema.$ref.split("/").pop() || "unknown";
 	if (schema.type === "string") return "string";
@@ -61,21 +59,24 @@ function buildMethod(
 
 	const paramsType = hasParams
 		? (() => {
-			let type = "Record<string, unknown>";
-			if (pathParameters.length > 0) {
-				const parts = pathParameters
-					.map((p) => `${p.name}${p.required ? "" : "?"}: ${schemaToTS(p.schema)}`)
-					.join("; ");
-				type = `{ ${parts} }`;
-			}
-			if (ep.queryParamsRef) {
-				type =
-					type === "Record<string, unknown>"
-						? ep.queryParamsRef
-						: `${type} & ${ep.queryParamsRef}`;
-			}
-			return type;
-		})()
+				let type = "Record<string, unknown>";
+				if (pathParameters.length > 0) {
+					const parts = pathParameters
+						.map(
+							(p) =>
+								`${p.name}${p.required ? "" : "?"}: ${schemaToTS(p.schema)}`,
+						)
+						.join("; ");
+					type = `{ ${parts} }`;
+				}
+				if (ep.queryParamsRef) {
+					type =
+						type === "Record<string, unknown>"
+							? ep.queryParamsRef
+							: `${type} & ${ep.queryParamsRef}`;
+				}
+				return type;
+			})()
 		: "undefined";
 
 	const bodyType = hasBody ? ep.requestBodyRef || "unknown" : "undefined";
@@ -119,20 +120,27 @@ function buildMethod(
 				m.line(`const { ${destructure.join(", ")} } = opts;`);
 			}
 
-			m.line(`return await request<${responseType}, ${paramsType}, ${bodyType}>(`);
+			m.line(
+				`return await request<${responseType}, ${paramsType}, ${bodyType}>(`,
+			);
 			m.object({
 				path: `\`${pathTemplate}\``,
 				method: `'${lowerMethod}'`,
 				params: hasParams ? "params" : undefined,
-				paramsSchema: ep.queryParamsRef ? `${ep.queryParamsRef}Schema` : undefined,
+				paramsSchema: ep.queryParamsRef
+					? `${ep.queryParamsRef}Schema`
+					: undefined,
 				explicitQueryKeys:
 					queryKeys.length > 0 ? `[${queryKeys.join(", ")}]` : undefined,
 				body: hasBody && ep.requestBodyRef ? "body" : undefined,
 				bodySchema:
-					hasBody && ep.requestBodyRef ? `${ep.requestBodyRef}Schema` : undefined,
+					hasBody && ep.requestBodyRef
+						? `${ep.requestBodyRef}Schema`
+						: undefined,
 				headers: needsHeaders ? "headers" : undefined,
 				cookies: needsCookies ? "cookies" : undefined,
-				contentType: contentType !== "application/json" ? `'${contentType}'` : undefined,
+				contentType:
+					contentType !== "application/json" ? `'${contentType}'` : undefined,
 				security: ep.security ? JSON.stringify(ep.security) : undefined,
 				validationMode: "validationMode",
 			});
@@ -220,7 +228,10 @@ export function generateClient(
 			options.flat ? "./request-helper" : "../request-helper",
 		);
 		serviceBuilder.import([{ name: "Result" }], "neverthrow");
-		serviceBuilder.import([errorTypeName], options.flat ? "./errors" : "../errors");
+		serviceBuilder.import(
+			[errorTypeName],
+			options.flat ? "./errors" : "../errors",
+		);
 
 		const serviceTypeImports = new Set<string>();
 		const serviceValidatorImports = new Set<string>();
@@ -244,7 +255,7 @@ export function generateClient(
 				: name;
 			if (!serviceImports.has(fileName))
 				serviceImports.set(fileName, new Set());
-			serviceImports.get(fileName)!.add(name);
+			serviceImports.get(fileName)?.add(name);
 		};
 
 		serviceTypeImports.forEach(addImport);
@@ -261,7 +272,9 @@ export function generateClient(
 
 		serviceBuilder.classBlock(serviceName, (cls) => {
 			const methodNames = new Set<string>();
-			eps.forEach((ep) => buildMethod(cls, ep, errorTypeName, methodNames));
+			for (const ep of eps) {
+				buildMethod(cls, ep, errorTypeName, methodNames);
+			}
 		});
 
 		files[options.flat ? `${serviceName}.ts` : `services/${serviceName}.ts`] =

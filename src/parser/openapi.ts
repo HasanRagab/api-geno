@@ -1,4 +1,4 @@
-import fs from "fs";
+import fs from "node:fs";
 import type {
 	Endpoint,
 	OpenAPIModel,
@@ -17,6 +17,17 @@ import {
 } from "./utils";
 
 type RawObject = Record<string, unknown>;
+
+const VALID_HTTP_METHODS = new Set([
+	"get",
+	"post",
+	"put",
+	"delete",
+	"patch",
+	"options",
+	"head",
+	"trace",
+]);
 
 interface OpenAPIContentSchema {
 	schema?: unknown;
@@ -40,6 +51,8 @@ function parseV3(spec: unknown): OpenAPIModel {
 		const methods = isObject(methodsRaw) ? methodsRaw : {};
 
 		for (const [method, detailsRaw] of Object.entries(methods)) {
+			if (!VALID_HTTP_METHODS.has(method.toLowerCase())) continue;
+
 			const d = isObject(detailsRaw) ? detailsRaw : {};
 			const parameters: Parameter[] = toParameterList(d.parameters).map(
 				normalizeParamObject,
@@ -60,16 +73,22 @@ function parseV3(spec: unknown): OpenAPIModel {
 
 			const successResponse =
 				isObject(d.responses) &&
-					(isObject(d.responses["201"]) || isObject(d.responses["200"]))
+				(isObject(d.responses["201"]) || isObject(d.responses["200"]))
 					? d.responses["201"] || d.responses["200"]
 					: undefined;
 
-			const content = isObject(successResponse) && isObject((successResponse as RawObject).content)
-				? (successResponse as RawObject).content as Record<string, OpenAPIContentSchema>
-				: undefined;
+			const content =
+				isObject(successResponse) &&
+				isObject((successResponse as RawObject).content)
+					? ((successResponse as RawObject).content as Record<
+							string,
+							OpenAPIContentSchema
+						>)
+					: undefined;
 
 			const responseSchema = content
-				? content["application/json"]?.schema || Object.values(content)[0]?.schema
+				? content["application/json"]?.schema ||
+					Object.values(content)[0]?.schema
 				: undefined;
 
 			const responseRef = extractSchemaRef(responseSchema);
@@ -89,7 +108,8 @@ function parseV3(spec: unknown): OpenAPIModel {
 					? (d.tags.filter((tag) => typeof tag === "string") as string[])
 					: [],
 				summary: typeof d.summary === "string" ? d.summary : undefined,
-				description: typeof d.description === "string" ? d.description : undefined,
+				description:
+					typeof d.description === "string" ? d.description : undefined,
 				deprecated: d.deprecated === true,
 				parameters,
 				requestBody,
@@ -100,7 +120,9 @@ function parseV3(spec: unknown): OpenAPIModel {
 					? (d.responses as Record<string, Response>)
 					: {},
 				responseRef,
-				security: Array.isArray(d.security) ? (d.security as Record<string, string[]>[]) : undefined,
+				security: Array.isArray(d.security)
+					? (d.security as Record<string, string[]>[])
+					: undefined,
 			});
 		}
 	}
@@ -123,9 +145,17 @@ function parseV3(spec: unknown): OpenAPIModel {
 		base,
 		components: {
 			schemas: normalizedSchemas,
-			securitySchemes: isObject(spec.components) && isObject(spec.components.securitySchemes) ? (spec.components.securitySchemes as any) : undefined,
+			securitySchemes:
+				isObject(spec.components) && isObject(spec.components.securitySchemes)
+					? (spec.components.securitySchemes as Record<
+							string,
+							import("../models").SecurityScheme
+						>)
+					: undefined,
 		},
-		security: Array.isArray(spec.security) ? (spec.security as any) : undefined,
+		security: Array.isArray(spec.security)
+			? (spec.security as import("../models").SecurityRequirement[])
+			: undefined,
 	};
 }
 
@@ -150,7 +180,7 @@ function parseV2(spec: unknown): OpenAPIModel {
 		const pathParams = toParameterList(methods.parameters);
 
 		for (const [method, detailsRaw] of Object.entries(methods)) {
-			if (method === "parameters") continue;
+			if (!VALID_HTTP_METHODS.has(method.toLowerCase())) continue;
 
 			const d = isObject(detailsRaw) ? detailsRaw : {};
 			const operationParams = toParameterList(d.parameters);
@@ -178,7 +208,7 @@ function parseV2(spec: unknown): OpenAPIModel {
 
 			const successResponse =
 				isObject(d.responses) &&
-					(isObject(d.responses["201"]) || isObject(d.responses["200"]))
+				(isObject(d.responses["201"]) || isObject(d.responses["200"]))
 					? d.responses["201"] || d.responses["200"]
 					: undefined;
 
@@ -203,7 +233,8 @@ function parseV2(spec: unknown): OpenAPIModel {
 					? (d.tags.filter((tag) => typeof tag === "string") as string[])
 					: [],
 				summary: typeof d.summary === "string" ? d.summary : undefined,
-				description: typeof d.description === "string" ? d.description : undefined,
+				description:
+					typeof d.description === "string" ? d.description : undefined,
 				deprecated: d.deprecated === true,
 				parameters,
 				requestBody,
@@ -214,7 +245,9 @@ function parseV2(spec: unknown): OpenAPIModel {
 					? (d.responses as Record<string, Response>)
 					: {},
 				responseRef,
-				security: Array.isArray(d.security) ? (d.security as Record<string, string[]>[]) : undefined,
+				security: Array.isArray(d.security)
+					? (d.security as Record<string, string[]>[])
+					: undefined,
 			});
 		}
 	}
@@ -234,9 +267,16 @@ function parseV2(spec: unknown): OpenAPIModel {
 		base,
 		components: {
 			schemas: normalizedSchemas,
-			securitySchemes: isObject(spec.securityDefinitions) ? (spec.securityDefinitions as any) : undefined,
+			securitySchemes: isObject(spec.securityDefinitions)
+				? (spec.securityDefinitions as Record<
+						string,
+						import("../models").SecurityScheme
+					>)
+				: undefined,
 		},
-		security: Array.isArray(spec.security) ? (spec.security as any) : undefined,
+		security: Array.isArray(spec.security)
+			? (spec.security as import("../models").SecurityRequirement[])
+			: undefined,
 	};
 }
 

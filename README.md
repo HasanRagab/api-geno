@@ -59,10 +59,18 @@ Create an `api-geno.config.json` to reuse common generation options:
 
 ## 📦 Package scripts
 
-- `bun run build`: Compile the generator
-- `bun run gen`: Build and generate using `api.json`
-- `bun run check`: Type-check only
-- `bun run release`: Create a single bundled CLI binary in `release/api-geno`
+| Script | What it does |
+|--------|-------------|
+| `bun run build` | Compile the generator |
+| `bun run gen` | Build and generate using `api.json` |
+| `bun run check` | Type-check only |
+| `bun run lint` | Run Biome lint |
+| `bun run lint:fix` | Autofix lint issues |
+| `bun run format` | Format all files |
+| `bun run format:check` | Check formatting (CI) |
+| `bun run test` | Run tests |
+| `bun run verify` | Lint + typecheck + test + build (full local CI) |
+| `bun run release` | Create a single bundled CLI binary in `release/api-geno` |
 
 ## 🧪 Run tests
 
@@ -76,6 +84,21 @@ bun test
 ```bash
 bun run build
 bun run ./dist/cli.js generate -i api.json -o ./generated --force
+```
+
+## 🤝 Contributing
+
+```bash
+bun install          # also sets up git hooks via lefthook
+bun run verify       # run full check before pushing
+```
+
+Pre-commit hooks run `lint` and `check` automatically. Pre-push runs the full `verify` pipeline.
+
+Use [changesets](https://github.com/changesets/changesets) for versioning:
+
+```bash
+bun run changeset    # describe your change
 ```
 
 > Note: `api-geno` is published as a CLI binary via `dist/cli.js` and also supports `api-geno` once installed globally or linked.

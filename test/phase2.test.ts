@@ -1,63 +1,67 @@
 import { describe, expect, test } from "bun:test";
+import fs from "node:fs";
+import path from "node:path";
 import { generateFromOpenAPI } from "../src/index";
-import fs from "fs";
-import path from "path";
 
 describe("Phase 2 Enhancements", () => {
-    test("Custom Axios instance is used in http-adapter", () => {
-        const spec = {
-            openapi: "3.0.0",
-            info: { title: "Test", version: "1.0.0" },
-            paths: {},
-            components: {}
-        };
+	test("Custom Axios instance is used in http-adapter", () => {
+		const spec = {
+			openapi: "3.0.0",
+			info: { title: "Test", version: "1.0.0" },
+			paths: {},
+			components: {},
+		};
 
-        const tempPath = path.join(process.cwd(), "test", "phase2_axios.json");
-        fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
+		const tempPath = path.join(process.cwd(), "test", "phase2_axios.json");
+		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-        const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
-        fs.unlinkSync(tempPath);
+		const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
+		fs.unlinkSync(tempPath);
 
-        expect(files["http-adapter.ts"]).toContain("(OpenAPI.AXIOS_INSTANCE || axios)");
-    });
+		expect(files["http-adapter.ts"]).toContain(
+			"(OpenAPI.AXIOS_INSTANCE || axios)",
+		);
+	});
 
-    test("Base URL is extracted from V3 servers", () => {
-        const spec = {
-            openapi: "3.0.0",
-            info: { title: "Test", version: "1.0.0" },
-            servers: [
-                { url: "https://api.example.com/v1" }
-            ],
-            paths: {},
-            components: {}
-        };
+	test("Base URL is extracted from V3 servers", () => {
+		const spec = {
+			openapi: "3.0.0",
+			info: { title: "Test", version: "1.0.0" },
+			servers: [{ url: "https://api.example.com/v1" }],
+			paths: {},
+			components: {},
+		};
 
-        const tempPath = path.join(process.cwd(), "test", "phase2_v3_base.json");
-        fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
+		const tempPath = path.join(process.cwd(), "test", "phase2_v3_base.json");
+		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-        const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
-        fs.unlinkSync(tempPath);
+		const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
+		fs.unlinkSync(tempPath);
 
-        expect(files["openapi.config.ts"]).toContain("BASE: 'https://api.example.com/v1'");
-    });
+		expect(files["openapi.config.ts"]).toContain(
+			"BASE: 'https://api.example.com/v1'",
+		);
+	});
 
-    test("Base URL is extracted from V2 host/schemes/basePath", () => {
-        const spec = {
-            swagger: "2.0",
-            info: { title: "Test", version: "1.0.0" },
-            host: "api.example.org",
-            basePath: "/v2",
-            schemes: ["https"],
-            paths: {},
-            definitions: {}
-        };
+	test("Base URL is extracted from V2 host/schemes/basePath", () => {
+		const spec = {
+			swagger: "2.0",
+			info: { title: "Test", version: "1.0.0" },
+			host: "api.example.org",
+			basePath: "/v2",
+			schemes: ["https"],
+			paths: {},
+			definitions: {},
+		};
 
-        const tempPath = path.join(process.cwd(), "test", "phase2_v2_base.json");
-        fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
+		const tempPath = path.join(process.cwd(), "test", "phase2_v2_base.json");
+		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-        const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
-        fs.unlinkSync(tempPath);
+		const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
+		fs.unlinkSync(tempPath);
 
-        expect(files["openapi.config.ts"]).toContain("BASE: 'https://api.example.org/v2'");
-    });
+		expect(files["openapi.config.ts"]).toContain(
+			"BASE: 'https://api.example.org/v2'",
+		);
+	});
 });

@@ -1,13 +1,13 @@
 import { CodeBuilder } from "./codegen/builder";
 import { generateClient } from "./generator/client";
+import { generateCommonHelper } from "./generator/common";
 import { generateConfig, generateConfigTypes } from "./generator/config";
 import { generateErrors } from "./generator/errors";
 import { generateTypes } from "./generator/types";
-import { generateCommonHelper } from "./generator/common";
+import { generateCoverageReport } from "./generator/utils";
 import type { OpenAPIModel } from "./models";
 import { parseOpenAPI } from "./parser/openapi";
 import type { GeneratorPlugin } from "./plugins/plugin";
-import { generateCoverageReport } from "./generator/utils";
 
 function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 	const b = new CodeBuilder();
@@ -109,11 +109,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 				{
 					condition: "authScheme === 'basic' && username && password",
 					body: (b) => {
-						b.const(
-							"creds",
-							"username" +
-							" + ':' + password",
-						);
+						b.const("creds", "username" + " + ':' + password");
 						b.assign(
 							"finalHeaders['Authorization']",
 							"'Basic ' + Buffer.from(creds).toString('base64')",
@@ -139,7 +135,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 										b.assign(
 											"finalUrl",
 											"finalUrl + joinChar + encodeURIComponent(apiKeyName)" +
-											" + '=' + encodeURIComponent(String(apiKeyVal))",
+												" + '=' + encodeURIComponent(String(apiKeyVal))",
 										);
 									},
 								},
@@ -219,7 +215,9 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 					tryBody.return("ok(body as any)");
 				} else {
 					tryBody.const("contentType", "headers['Content-Type']");
-					tryBody.line("const response = await (OpenAPI.AXIOS_INSTANCE || axios)(");
+					tryBody.line(
+						"const response = await (OpenAPI.AXIOS_INSTANCE || axios)(",
+					);
 					tryBody.indent();
 					tryBody.object({
 						url: "finalUrl",
@@ -273,22 +271,29 @@ export function generateFromOpenAPI(
 ): Record<string, string> {
 	const api: OpenAPIModel = parseOpenAPI(filePath);
 
-	plugins.forEach((p) => p.beforeGenerate?.(api));
-	plugins.forEach((p) => {
-		if (p.transformEndpoint)
-			api.endpoints = api.endpoints.map((endpoint) =>
-				p.transformEndpoint!(endpoint),
-			);
-		if (p.transformSchema)
+	for (const p of plugins) {
+		p.beforeGenerate?.(api);
+	}
+	for (const p of plugins) {
+		if (p.transformEndpoint) {
+			const transform = p.transformEndpoint;
+			api.endpoints = api.endpoints.map((endpoint) => transform(endpoint));
+		}
+		if (p.transformSchema) {
+			const transform = p.transformSchema;
 			api.schemas = Object.fromEntries(
 				Object.entries(api.schemas).map(([name, schema]) => [
 					name,
-					p.transformSchema!(name, schema),
+					transform(name, schema),
 				]),
 			);
-	});
+		}
+	}
 
-	const typesFiles = generateTypes(api.schemas, { noZod: options.noZod, flat: options.flat });
+	const typesFiles = generateTypes(api.schemas, {
+		noZod: options.noZod,
+		flat: options.flat,
+	});
 	const clientFiles = generateClient(api.endpoints, {
 		errorStyle: options.errorStyle,
 		splitServices: options.splitServices !== false,
@@ -335,6 +340,8 @@ export function generateFromOpenAPI(
 		Object.assign(files, rawFiles);
 	}
 
-	plugins.forEach((p) => p.afterGenerate?.(files, api));
+	for (const p of plugins) {
+		p.afterGenerate?.(files, api);
+	}
 	return files;
 }

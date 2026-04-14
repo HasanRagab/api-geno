@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
 import { parseOpenAPI } from "../src/parser/openapi";
 
 test("parseOpenAPI supports all specs under test/specs", () => {

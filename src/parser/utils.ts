@@ -1,10 +1,4 @@
-import {
-	type Endpoint,
-	OpenAPIModel,
-	type Parameter,
-	Response,
-	type Schema,
-} from "../models";
+import type { Endpoint, Parameter, Schema } from "../models";
 
 export type RawObject = Record<string, unknown>;
 
@@ -59,16 +53,15 @@ export function normalizeSchema(schema: unknown): Schema {
 		) as string[];
 	}
 
-	const arrayFields: Array<keyof Schema> = ["allOf", "oneOf", "anyOf"];
+	const arrayFields = ["allOf", "oneOf", "anyOf"] as const;
 	for (const field of arrayFields) {
-		if (Array.isArray((schema as any)[field])) {
-			(normalized as any)[field] = (schema as any)[field].map((sub: unknown) =>
-				normalizeSchema(sub),
-			);
+		const rawValue = (schema as Record<string, unknown>)[field];
+		if (Array.isArray(rawValue)) {
+			normalized[field] = rawValue.map((sub: unknown) => normalizeSchema(sub));
 		}
 	}
 
-	const booleanNumberStringFields = [
+	const passthrough = [
 		"nullable",
 		"minLength",
 		"maxLength",
@@ -79,9 +72,10 @@ export function normalizeSchema(schema: unknown): Schema {
 		"exclusiveMaximum",
 	] as const;
 
-	for (const field of booleanNumberStringFields) {
-		if ((schema as any)[field] !== undefined) {
-			(normalized as any)[field] = (schema as any)[field];
+	const rawSchema = schema as Record<string, unknown>;
+	for (const field of passthrough) {
+		if (rawSchema[field] !== undefined) {
+			(normalized as Record<string, unknown>)[field] = rawSchema[field];
 		}
 	}
 
@@ -89,7 +83,10 @@ export function normalizeSchema(schema: unknown): Schema {
 		normalized.enum = schema.enum as (string | number | boolean)[];
 	}
 
-	if (isObject(schema.discriminator) && typeof schema.discriminator.propertyName === "string") {
+	if (
+		isObject(schema.discriminator) &&
+		typeof schema.discriminator.propertyName === "string"
+	) {
 		normalized.discriminator = {
 			propertyName: schema.discriminator.propertyName,
 			mapping: isObject(schema.discriminator.mapping)
@@ -99,7 +96,7 @@ export function normalizeSchema(schema: unknown): Schema {
 	}
 
 	if (schema.default !== undefined) {
-		normalized.default = schema.default;
+		normalized.default = schema.default as Schema["default"];
 	}
 
 	if (typeof schema.description === "string") {

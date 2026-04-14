@@ -14,21 +14,19 @@ function collectSchemaRefs(
 		return refs;
 	}
 
-	const array = ["items", "allOf", "oneOf", "anyOf"];
-	for (const key of array) {
-		const value = (schema as any)[key];
-		if (!value) continue;
-		if (Array.isArray(value)) {
-			value.forEach((item: Schema) => collectSchemaRefs(item, refs));
-		} else {
-			collectSchemaRefs(value, refs);
+	if (schema.items) collectSchemaRefs(schema.items, refs);
+	for (const compositeField of [schema.allOf, schema.oneOf, schema.anyOf]) {
+		if (compositeField) {
+			for (const item of compositeField) {
+				collectSchemaRefs(item, refs);
+			}
 		}
 	}
 
 	if (schema.properties) {
-		Object.values(schema.properties).forEach((prop) =>
-			collectSchemaRefs(prop, refs),
-		);
+		for (const prop of Object.values(schema.properties)) {
+			collectSchemaRefs(prop, refs);
+		}
 	}
 
 	if (
@@ -78,17 +76,22 @@ export function generateTypes(
 			builder.line(`export type ${name} = z.infer<typeof ${name}Schema>;`);
 		} else {
 			// Basic type generation if no zod (fallback to simple interface-like type)
-			builder.line(`export type ${name} = any; // TODO: implement full type gen without zod`);
+			builder.line(
+				`export type ${name} = any; // TODO: implement full type gen without zod`,
+			);
 		}
 
-		files[options.flat ? `${name}.ts` : `types/${name}.ts`] = builder.toString();
+		files[options.flat ? `${name}.ts` : `types/${name}.ts`] =
+			builder.toString();
 	});
 
 	// root aggregator
 	const rootBuilder = new CodeBuilder();
-	Object.keys(schemas).forEach((name) =>
-		rootBuilder.line(`export * from '${options.flat ? `./${name}` : `./types/${name}`}';`),
-	);
+	for (const name of Object.keys(schemas)) {
+		rootBuilder.line(
+			`export * from '${options.flat ? `./${name}` : `./types/${name}`}';`,
+		);
+	}
 
 	files["types.ts"] = rootBuilder.toString();
 

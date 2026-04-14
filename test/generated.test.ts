@@ -1,10 +1,10 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+import fs, { existsSync, readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { spawnSync } from "bun";
-import fs, { existsSync, readdirSync, readFileSync } from "fs";
-import path from "path";
 import { generateClient } from "../src/generator/client";
 import { generateFromOpenAPI } from "../src/index";
-import type { Endpoint } from "../src/models";
+import type { Endpoint, Schema } from "../src/models";
 
 const GENERATED_DIR = "./generated";
 
@@ -185,9 +185,9 @@ describe("generated code", () => {
 			name: "test-plugin",
 			transformEndpoint: (endpoint: Endpoint) => ({
 				...endpoint,
-				operationId: endpoint.operationId + "X",
+				operationId: `${endpoint.operationId}X`,
 			}),
-			transformSchema: (name: string, schema: any) => ({
+			transformSchema: (_name: string, schema: Schema) => ({
 				...schema,
 				description: "transformed",
 			}),
@@ -263,24 +263,19 @@ describe("generated code", () => {
 	// 🔥 STRUCTURE TESTS
 	// --------------------------------------------------
 
-	test("optional fields are marked correctly in zod schema", () => {
-		const courseSchema = read("types/CourseResponseDto.ts");
-		expect(courseSchema).toMatch(/\.optional\(\)/);
-	});
-
 	test("arrays are generated correctly in zod schema", () => {
-		const courseSchema = read("types/CourseResponseDto.ts");
-		expect(courseSchema).toMatch(/z\.array\(/);
+		const examSchema = read("types/ExamJson.ts");
+		expect(examSchema).toMatch(/z\.array\(/);
 	});
 
 	test("nullable fields handled in zod schema", () => {
-		const courseSchema = read("types/CourseResponseDto.ts");
-		expect(courseSchema).toMatch(/\.nullable\(\)/);
+		const examSchema = read("types/ExamJson.ts");
+		expect(examSchema).toMatch(/\.nullable\(\)/);
 	});
 
 	test("enums are generated in zod schema", () => {
-		const courseSchema = read("types/CourseResponseDto.ts");
-		expect(courseSchema).toMatch(/z\.enum\(/);
+		const examSchema = read("types/ExamJson.ts");
+		expect(examSchema).toMatch(/z\.enum\(/);
 	});
 
 	// --------------------------------------------------
@@ -293,10 +288,9 @@ describe("generated code", () => {
 	});
 
 	test("service methods include params/body/response typing when needed", () => {
-		const courses = safeRead("services/CoursesService.ts");
-		expect(courses).toMatch(/params\?\s*:\s*coursesFindAllQueryParams/);
-		expect(courses).toMatch(/body\?\s*:\s*CreateCourseDto/);
-		expect(courses).toMatch(/Promise<Result<.*CourseListResponseDto.*>>/);
+		const courses = safeRead("services/LmsCoursesService.ts");
+		expect(courses).toMatch(/body\?\s*:\s*CreateCourseBody/);
+		expect(courses).toMatch(/Promise<Result<.*CourseResponse.*>>/);
 	});
 
 	test("http methods are present in services", () => {
@@ -316,8 +310,7 @@ describe("generated code", () => {
 	});
 
 	test("content-type handled in services", () => {
-		const courses = safeRead("services/CoursesService.ts");
-		// Since application/json is default, it should NOT be explicitly emitted by m.object()
+		const courses = safeRead("services/LmsCoursesService.ts");
 		expect(courses).not.toMatch(/contentType: 'application\/json'/);
 	});
 

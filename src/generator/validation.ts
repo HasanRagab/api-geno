@@ -87,9 +87,18 @@ export function getZodType(schema: Schema): string {
 
 		if (schema.minLength) parts.push(`.min(${schema.minLength})`);
 		if (schema.maxLength) parts.push(`.max(${schema.maxLength})`);
-		if (schema.pattern) parts.push(`.regex(/${schema.pattern}/)`);
+		if (schema.pattern) {
+			const escaped = schema.pattern
+				.replace(/\\/g, "\\\\")
+				.replace(/\//g, "\\/");
+			parts.push(`.regex(/${escaped}/)`);
+		}
 		if (schema.enum) {
-			const enumValues = schema.enum.map((v: any) => `"${v}"`).join(", ");
+			const enumValues = schema.enum
+				.map(
+					(v) => `"${String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`,
+				)
+				.join(", ");
 			parts[0] = `z.enum([${enumValues}])`;
 		}
 		zodType = parts.join("");
@@ -98,15 +107,15 @@ export function getZodType(schema: Schema): string {
 	if (schema.type === "number" || schema.type === "integer") {
 		const parts = [zodType];
 		if (schema.minimum !== undefined) {
-			const op = (schema as any).exclusiveMinimum ? ".gt" : ".gte";
+			const op = schema.exclusiveMinimum ? ".gt" : ".gte";
 			parts.push(`${op}(${schema.minimum})`);
 		}
 		if (schema.maximum !== undefined) {
-			const op = (schema as any).exclusiveMaximum ? ".lt" : ".lte";
+			const op = schema.exclusiveMaximum ? ".lt" : ".lte";
 			parts.push(`${op}(${schema.maximum})`);
 		}
 		if (schema.enum) {
-			const literals = schema.enum.map((v: any) => `z.literal(${v})`).join(", ");
+			const literals = schema.enum.map((v) => `z.literal(${v})`).join(", ");
 			parts[0] = `z.union([${literals}])`;
 		}
 		zodType = parts.join("");
@@ -118,20 +127,27 @@ export function getZodType(schema: Schema): string {
 		schema.type !== "number" &&
 		schema.type !== "integer"
 	) {
-		const enumValues = schema.enum.map((v: any) => `"${v}"`).join(", ");
+		const enumValues = schema.enum
+			.map((v) => `"${String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`)
+			.join(", ");
 		zodType = `z.enum([${enumValues}])`;
 	}
 
 	if (schema.default !== undefined) {
 		const defaultValue =
 			typeof schema.default === "string"
-				? `"${schema.default}"`
+				? `"${schema.default.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
 				: schema.default;
 		zodType += `.default(${defaultValue})`;
 	}
 
 	if (schema.description) {
-		zodType += `.describe("${schema.description.replace(/"/g, '\\"')}")`;
+		const safeDesc = schema.description
+			.replace(/\\/g, "\\\\")
+			.replace(/"/g, '\\"')
+			.replace(/\n/g, "\\n")
+			.replace(/\r/g, "\\r");
+		zodType += `.describe("${safeDesc}")`;
 	}
 
 	if (schema.nullable) {

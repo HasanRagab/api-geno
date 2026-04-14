@@ -21,9 +21,11 @@ export interface Schema {
 	pattern?: string;
 	minimum?: number;
 	maximum?: number;
+	exclusiveMinimum?: boolean;
+	exclusiveMaximum?: boolean;
 
-	default?: any;
-	example?: any;
+	default?: string | number | boolean | null | Record<string, unknown>;
+	example?: string | number | boolean | null | Record<string, unknown>;
 	description?: string;
 	title?: string;
 	discriminator?: {
@@ -76,7 +78,7 @@ export interface SecurityScheme {
 	in?: "header" | "query" | "cookie"; // for apiKey
 	scheme?: string; // for http (e.g. bearer)
 	bearerFormat?: string; // for http
-	flows?: any; // for oauth2
+	flows?: Record<string, unknown>;
 	openIdConnectUrl?: string; // for openIdConnect
 }
 

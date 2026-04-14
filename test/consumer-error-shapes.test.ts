@@ -17,7 +17,7 @@ test("formatError works with ValidationErrorShape", () => {
 		name: "ValidationError",
 		message: "bad input",
 		issues: [{ path: ["a"], message: "required" }],
-	} as any;
+	} as unknown as ValidationErrorShape;
 	expect(formatError(ve)).toBe("bad input");
 });
 
@@ -27,6 +27,6 @@ test("formatError works with HttpErrorShape", () => {
 		name: "HttpError",
 		message: "not found",
 		status: 404,
-	} as any;
+	} as unknown as HttpErrorShape;
 	expect(formatError(he)).toBe("not found");
 });

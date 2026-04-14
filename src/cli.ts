@@ -1,8 +1,55 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { Command } from "commander";
-import fs from "fs";
-import path from "path";
+import { z } from "zod";
 import { generateFromOpenAPI } from "./index";
+
+const ConfigSchema = z
+	.object({
+		input: z.string().optional(),
+		in: z.string().optional(),
+		output: z.string().optional(),
+		out: z.string().optional(),
+		errorStyle: z.enum(["class", "shape", "both"]).optional(),
+		emitOnlyShapes: z.boolean().optional(),
+		skipGeneratedOutputs: z.boolean().optional(),
+		force: z.boolean().optional(),
+		outputFormat: z.string().optional(),
+		httpAdapter: z.enum(["axios", "fetch"]).optional(),
+		flat: z.boolean().optional(),
+		noZod: z.boolean().optional(),
+		splitServices: z.boolean().optional(),
+		format: z.boolean().optional(),
+		report: z.boolean().optional(),
+		watch: z.boolean().optional(),
+	})
+	.passthrough();
+
+function runFormatter(outputDir: string): void {
+	const biomeResult = spawnSync(
+		"npx",
+		["biome", "format", "--write", outputDir],
+		{
+			stdio: "inherit",
+			shell: false,
+		},
+	);
+	if (biomeResult.status === 0) return;
+
+	const prettierResult = spawnSync(
+		"npx",
+		["prettier", "--write", `${outputDir}/**/*.{ts,js,json}`],
+		{
+			stdio: "inherit",
+			shell: false,
+		},
+	);
+	if (prettierResult.status !== 0) {
+		console.warn("Warning: Formatting failed with both biome and prettier.");
+	}
+}
 
 const program = new Command();
 
@@ -41,83 +88,118 @@ program
 	)
 	.option("--flat", "Generate all files in a single flat directory", false)
 	.option("--no-zod", "Do not generate zod validation schemas", false)
-	.option("--split-services", "Split endpoints into multiple service files (default)", true)
-	.option("--no-split-services", "Generate all endpoints in a single ApiService")
-	.option("--format", "Format generated code using biome or prettier if available", false)
+	.option(
+		"--split-services",
+		"Split endpoints into multiple service files (default)",
+		true,
+	)
+	.option(
+		"--no-split-services",
+		"Generate all endpoints in a single ApiService",
+	)
+	.option(
+		"--format",
+		"Format generated code using biome or prettier if available",
+		false,
+	)
 	.option("--report", "Generate a schema coverage report", false)
 	.option("-w, --watch", "Watch input file for changes and regenerate")
-	.action(async (opts: any, cmd: any) => {
+	.action(async (opts: Record<string, unknown>, cmd: Command) => {
 		const options = typeof cmd?.opts === "function" ? cmd.opts() : opts;
 
 		const runGeneration = async () => {
-			// Load from config file if exists
 			const configPath = path.resolve("api-geno.config.json");
-			let fileConfig: any = {};
+			let fileConfig: Record<string, unknown> = {};
 			if (fs.existsSync(configPath)) {
 				try {
-					fileConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-				} catch (err: any) {
-					console.warn(`Warning: Failed to parse api-geno.config.json: ${err.message}`);
+					const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+					const parsed = ConfigSchema.safeParse(raw);
+					if (parsed.success) {
+						fileConfig = parsed.data;
+					} else {
+						console.warn(
+							`Warning: Invalid api-geno.config.json: ${parsed.error.message}`,
+						);
+					}
+				} catch (err: unknown) {
+					const message = err instanceof Error ? err.message : String(err);
+					console.warn(
+						`Warning: Failed to parse api-geno.config.json: ${message}`,
+					);
 				}
 			}
 
 			const mergedOptions = { ...fileConfig, ...options };
 
-			const outputDir = path.resolve(mergedOptions.output || mergedOptions.out || "./generated");
-			const inputFile = path.resolve(mergedOptions.input || mergedOptions.in);
+			const outputDir = path.resolve(
+				(mergedOptions.output as string) ||
+					(mergedOptions.out as string) ||
+					"./generated",
+			);
+			const inputFile = path.resolve(
+				(mergedOptions.input as string) || (mergedOptions.in as string) || "",
+			);
 
 			if (!inputFile) {
-				throw new Error("Missing input file; use --input <file> or specify in api-geno.config.json");
+				throw new Error(
+					"Missing input file; use --input <file> or specify in api-geno.config.json",
+				);
 			}
 
 			if (!fs.existsSync(inputFile)) {
 				throw new Error(`Input file does not exist: ${inputFile}`);
 			}
 
-			const errorStyle = mergedOptions.emitOnlyShapes ? "shape" : mergedOptions.errorStyle || "both";
-			const httpAdapter = mergedOptions.httpAdapter || "axios";
+			const errorStyle = mergedOptions.emitOnlyShapes
+				? "shape"
+				: (mergedOptions.errorStyle as string) || "both";
+			const httpAdapter = (mergedOptions.httpAdapter as string) || "axios";
 			const skipGeneratedOutputs = !!mergedOptions.skipGeneratedOutputs;
 			const forceRegen = !!mergedOptions.force;
 			const flat = !!mergedOptions.flat;
 			const noZod = !!mergedOptions.noZod;
 			const splitServices = mergedOptions.splitServices !== false;
 
-			if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+			if (!fs.existsSync(outputDir))
+				fs.mkdirSync(outputDir, { recursive: true });
 
-			const crypto = await import("crypto");
+			const crypto = await import("node:crypto");
 			const inputData = fs.readFileSync(inputFile, "utf8");
 			const hash = crypto
 				.createHash("sha256")
 				.update(
 					inputData +
-					JSON.stringify({
-						errorStyle,
-						httpAdapter,
-						emitOnlyShapes: !!mergedOptions.emitOnlyShapes,
-						skipGeneratedOutputs,
-						flat,
-						noZod,
-						splitServices,
-						report: !!mergedOptions.report,
-					}),
+						JSON.stringify({
+							errorStyle,
+							httpAdapter,
+							emitOnlyShapes: !!mergedOptions.emitOnlyShapes,
+							skipGeneratedOutputs,
+							flat,
+							noZod,
+							splitServices,
+							report: !!mergedOptions.report,
+						}),
 				)
 				.digest("hex");
 
 			const hashPath = path.join(outputDir, ".api-geno.hash");
 			let previousHash: string | null = null;
-			if (fs.existsSync(hashPath)) previousHash = fs.readFileSync(hashPath, "utf8");
+			if (fs.existsSync(hashPath))
+				previousHash = fs.readFileSync(hashPath, "utf8");
 
 			if (!forceRegen && previousHash === hash) {
 				if (!options.watch) {
-					console.log("No changes detected in API + options — skipping generation.");
+					console.log(
+						"No changes detected in API + options — skipping generation.",
+					);
 				}
 				return;
 			}
 
 			console.log(`Generating API client to ${outputDir}...`);
 			const files = generateFromOpenAPI(inputFile, [], {
-				errorStyle,
-				httpAdapter,
+				errorStyle: errorStyle as "class" | "shape" | "both",
+				httpAdapter: httpAdapter as "axios" | "fetch",
 				flat,
 				noZod,
 				splitServices,
@@ -144,35 +226,30 @@ program
 			console.log("Generation complete.");
 
 			if (mergedOptions.format) {
-				const { execSync } = await import("child_process");
 				console.log("Formatting generated code...");
-				try {
-					// Prefer biome if available as it is faster
-					try {
-						execSync(`npx biome format --write ${outputDir}`, { stdio: "inherit" });
-					} catch (e) {
-						// Fallback to prettier
-						execSync(`npx prettier --write ${outputDir}/**/*.{ts,js,json}`, { stdio: "inherit" });
-					}
-					console.log("Formatting complete.");
-				} catch (err: any) {
-					console.warn(`Warning: Formatting failed: ${err.message}`);
-				}
+				runFormatter(outputDir);
+				console.log("Formatting complete.");
 			}
 		};
 
-		await runGeneration().catch(err => {
-			console.error(`Error: ${err.message}`);
+		await runGeneration().catch((err: unknown) => {
+			const message = err instanceof Error ? err.message : String(err);
+			console.error(`Error: ${message}`);
 			if (!options.watch) process.exit(1);
 		});
 
 		if (options.watch) {
-			const inputFile = path.resolve(options.input || "api-geno.config.json");
-			console.log(`Watching for changes...`);
+			const inputFile = path.resolve(
+				(options.input as string) || "api-geno.config.json",
+			);
+			console.log("Watching for changes...");
 
 			const onChange = async () => {
 				console.log("Change detected, regenerating...");
-				await runGeneration().catch(err => console.error(`Regeneration failed: ${err.message}`));
+				await runGeneration().catch((err: unknown) => {
+					const message = err instanceof Error ? err.message : String(err);
+					console.error(`Regeneration failed: ${message}`);
+				});
 			};
 
 			fs.watch(inputFile, (event) => {
@@ -186,7 +263,6 @@ program
 				});
 			}
 
-			// Keep process alive
 			process.stdin.resume();
 		}
 	});
