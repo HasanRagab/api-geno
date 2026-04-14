@@ -69,7 +69,7 @@ export function getZodType(schema: Schema): string {
 					.join(",\n");
 				zodType = `z.object({\n${props}\n})`;
 			} else {
-				zodType = "z.record(z.unknown())";
+				zodType = "z.record(z.string(), z.unknown())";
 			}
 			break;
 		default:
