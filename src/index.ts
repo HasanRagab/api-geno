@@ -37,6 +37,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 		"resolveValue",
 		{
 			async: true,
+			generics: "<T>",
 			params: "value: T | (() => T | Promise<T>) | undefined",
 			returns: "Promise<T | undefined>",
 		},

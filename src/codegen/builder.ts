@@ -526,14 +526,16 @@ export class CodeBuilder {
 			export?: boolean;
 			params?: string;
 			returns?: string;
+			generics?: string;
 		},
 		body: (b: CodeBuilder) => void,
 	) {
 		const exportKw = opts.export ? "export " : "";
 		const asyncKw = opts.async ? "async " : "";
 		const returns = opts.returns ? `: ${opts.returns}` : "";
+		const generics = opts.generics ? opts.generics : "";
 		return this.block(
-			`${exportKw}${asyncKw}function ${name}(${opts.params ?? ""})${returns}`,
+			`${exportKw}${asyncKw}function ${name}${generics}(${opts.params ?? ""})${returns}`,
 			body,
 		);
 	}
