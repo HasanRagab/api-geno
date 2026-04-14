@@ -111,8 +111,8 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 					body: (b) => {
 						b.const(
 							"creds",
-							"(typeof username === 'function' ? await username() : username)" +
-							" + ':' + (typeof password === 'function' ? await password() : password)",
+							"username" +
+							" + ':' + password",
 						);
 						b.assign(
 							"finalHeaders['Authorization']",

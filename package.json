@@ -1,6 +1,6 @@
 {
 	"name": "api-geno",
-	"version": "0.0.16",
+	"version": "0.0.17",
 	"type": "module",
 	"module": "dist/index.js",
 	"main": "dist/index.js",
@@ -42,7 +42,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.4.8",
 		"@types/bun": "^1.3.11",
-		"@types/node": "^25.5.0",
+		"@types/node": "^25.6.0",
 		"tsc-esm-fix": "^3.1.2",
 		"ts-node": "^10.9.2",
 		"ts-node-dev": "^2.0.0"
