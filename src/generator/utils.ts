@@ -69,3 +69,16 @@ export function generateCoverageReport(
 
 	return report.join("\n");
 }
+
+export function safeMethodName(endpoint: Endpoint, usedNames: Set<string>) {
+	let baseName = getOperationIdOrFallback(endpoint);
+	baseName = sanitizeIdentifier(baseName);
+
+	let name = baseName;
+	let counter = 1;
+	while (usedNames.has(name)) {
+		name = `${baseName}${counter++}`;
+	}
+	usedNames.add(name);
+	return name;
+}

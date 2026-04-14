@@ -147,11 +147,11 @@ export function generateCommonHelper(): string {
     b.line("} = options;");
     b.blank();
 
-    b.const("paramsValidation", "await validateData(paramsSchema, params, validationMode)");
+    b.const("paramsValidation", "await validateData(paramsSchema, params)");
     b.if("paramsValidation.isErr()", (b) => b.return("err(paramsValidation.error)"));
     b.blank();
 
-    b.const("bodyValidation", "await validateData(bodySchema, body, validationMode)");
+    b.const("bodyValidation", "await validateData(bodySchema, body)");
     b.if("bodyValidation.isErr()", (b) => b.return("err(bodyValidation.error)"));
     b.blank();
 

@@ -131,7 +131,7 @@ function buildMethod(
 				cookies: needsCookies ? "cookies" : undefined,
 				contentType: contentType !== "application/json" ? `'${contentType}'` : undefined,
 				security: ep.security ? JSON.stringify(ep.security) : undefined,
-				validationMode,
+				validationMode: "validationMode",
 			});
 			m.line(");");
 		},
@@ -209,31 +209,6 @@ export function generateClient(
 
 	const files: Record<string, string> = {};
 	files["client.ts"] = rootBuilder.toString();
-
-	// Add ApiService facade
-	const apiServiceBuilder = new CodeBuilder();
-	serviceNames.forEach((serviceName) => {
-		apiServiceBuilder.import(
-			[serviceName],
-			options.flat ? `./${serviceName}` : `./services/${serviceName}`,
-		);
-	});
-	apiServiceBuilder.blank();
-	apiServiceBuilder.classBlock("ApiService", (cls) => {
-		serviceNames.forEach((serviceName) => {
-			const propName =
-				serviceName.charAt(0).toLowerCase() +
-				serviceName.slice(1).replace(/Service$/, "");
-			cls.field(propName, serviceName, {
-				static: true,
-				value: `new ${serviceName}()`,
-			});
-		});
-	});
-	apiServiceBuilder.blank();
-	apiServiceBuilder.line("export const api = ApiService;");
-
-	files["client.ts"] = rootBuilder.toString() + "\n\n" + apiServiceBuilder.toString();
 
 	services.forEach((eps, serviceName) => {
 		const serviceBuilder = new CodeBuilder();

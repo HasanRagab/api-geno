@@ -1,7 +1,7 @@
-import { CoursesService, UsersService } from "./generated/client";
+import { OauthService } from "./generated/client";
 
 async function main() {
-	const req = await CoursesService.coursesFindAll();
+	const req = await OauthService.googleOAuth();
 	if (req.isOk()) {
 		console.log(req.value);
 	} else {
