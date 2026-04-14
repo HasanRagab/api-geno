@@ -28,7 +28,7 @@
 		"gen": "tsc && tsc-esm-fix && bun run ./dist/cli.js generate -i api.json -o ./generated --force",
 		"check": "tsc --noEmit",
 		"release": "bun build src/cli.ts --outfile release/api-geno --compress --minify --target node",
-		"prepublishOnly": "bun run clean && bun run release"
+		"prepublishOnly": "bun run clean && bun run build &&  bun run release"
 	},
 	"dependencies": {
 		"axios": "^1.13.6",
