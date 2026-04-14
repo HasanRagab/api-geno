@@ -59,23 +59,26 @@ function buildMethod(
 		.replace(/\{([^}]+)\}/g, (_, name) => `params?.${name}`)
 		.replace(/\u007f([^\u007f]+)\u007f/g, "${$1}");
 
-	let paramsType = "Record<string, unknown>";
+	const paramsType = hasParams
+		? (() => {
+			let type = "Record<string, unknown>";
+			if (pathParameters.length > 0) {
+				const parts = pathParameters
+					.map((p) => `${p.name}${p.required ? "" : "?"}: ${schemaToTS(p.schema)}`)
+					.join("; ");
+				type = `{ ${parts} }`;
+			}
+			if (ep.queryParamsRef) {
+				type =
+					type === "Record<string, unknown>"
+						? ep.queryParamsRef
+						: `${type} & ${ep.queryParamsRef}`;
+			}
+			return type;
+		})()
+		: "undefined";
 
-	if (pathParameters.length > 0) {
-		const parts = pathParameters
-			.map((p) => `${p.name}${p.required ? "" : "?"}: ${schemaToTS(p.schema)}`)
-			.join("; ");
-		paramsType = `{ ${parts} }`;
-	}
-
-	if (ep.queryParamsRef) {
-		paramsType =
-			paramsType === "Record<string, unknown>"
-				? ep.queryParamsRef
-				: `${paramsType} & ${ep.queryParamsRef}`;
-	}
-
-	const bodyType = ep.requestBodyRef ? ep.requestBodyRef : "unknown";
+	const bodyType = hasBody ? ep.requestBodyRef || "unknown" : "undefined";
 	const needsHeaders = hasParams || hasBody;
 	const needsCookies = needsHeaders;
 
@@ -116,7 +119,7 @@ function buildMethod(
 				m.line(`const { ${destructure.join(", ")} } = opts;`);
 			}
 
-			m.line(`return await request<${responseType}, any>(`);
+			m.line(`return await request<${responseType}, ${paramsType}, ${bodyType}>(`);
 			m.object({
 				path: `\`${pathTemplate}\``,
 				method: `'${lowerMethod}'`,

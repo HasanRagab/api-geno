@@ -111,15 +111,15 @@ export function generateCommonHelper(): string {
     );
     b.blank();
 
-    b.line("export async function request<T, P>(options: {");
+    b.line("export async function request<T, P = undefined, B = any>(options: {");
     b.indent();
     b.line("path: string;");
     b.line("method: string;");
     b.line("params?: P;");
     b.line("paramsSchema?: z.ZodType<P>;");
-    b.line("bodySchema?: z.ZodType<any>;");
+    b.line("bodySchema?: z.ZodType<B>;");
     b.line("explicitQueryKeys?: string[];");
-    b.line("body?: any;");
+    b.line("body?: B;");
     b.line("headers?: Record<string, string>;");
     b.line("cookies?: Record<string, string>;");
     b.line("contentType?: string;");
