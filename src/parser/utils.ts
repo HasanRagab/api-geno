@@ -195,17 +195,24 @@ export function createQuerySchemaReference(
 		const queryParams = ep.parameters?.filter((p) => p.in === "query") || [];
 		if (queryParams.length === 0) return;
 
-		const queryParamProperties: Record<string, Schema> = {};
+		const pathParams = ep.parameters?.filter((p) => p.in === "path") || [];
+		const properties: Record<string, Schema> = {};
 		const required: string[] = [];
 
+		// Client `params` includes path + query; QueryParams Zod schemas are .strict().
+		pathParams.forEach((param) => {
+			properties[param.name] = param.schema;
+			if (param.required) required.push(param.name);
+		});
+
 		queryParams.forEach((param) => {
-			queryParamProperties[param.name] = param.schema;
+			properties[param.name] = param.schema;
 			if (param.required) required.push(param.name);
 		});
 
 		schemas[ep.queryParamsRef] = {
 			type: "object",
-			properties: queryParamProperties,
+			properties,
 			required: required.length > 0 ? required : undefined,
 		};
 	});

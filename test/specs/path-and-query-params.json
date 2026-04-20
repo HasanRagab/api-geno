@@ -1,0 +1,35 @@
+{
+	"openapi": "3.0.3",
+	"info": { "title": "Path+query merge test", "version": "1.0.0" },
+	"paths": {
+		"/tenant/analytics/courses/{courseId}/export": {
+			"get": {
+				"operationId": "exportCourseAnalyticsCsv",
+				"parameters": [
+					{
+						"name": "courseId",
+						"in": "path",
+						"required": true,
+						"schema": { "type": "string", "format": "uuid" }
+					},
+					{
+						"name": "format",
+						"in": "query",
+						"required": false,
+						"schema": { "type": "string", "enum": ["csv", "xlsx"] }
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"text/csv": {
+								"schema": { "type": "string", "format": "binary" }
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
