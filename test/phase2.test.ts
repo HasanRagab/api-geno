@@ -19,7 +19,7 @@ describe("Phase 2 Enhancements", () => {
 		fs.unlinkSync(tempPath);
 
 		expect(files["http-adapter.ts"]).toContain(
-			"(OpenAPI.AXIOS_INSTANCE || axios)",
+			"(OpenAPI.AXIOS_INSTANCE ?? axios) as typeof axios",
 		);
 	});
 

@@ -216,8 +216,9 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 				} else {
 					tryBody.const("contentType", "headers['Content-Type']");
 					tryBody.line(
-						"const response = await (OpenAPI.AXIOS_INSTANCE || axios)(",
+						"const axiosClient = (OpenAPI.AXIOS_INSTANCE ?? axios) as typeof axios;",
 					);
+					tryBody.line("const response = await axiosClient(");
 					tryBody.indent();
 					tryBody.object({
 						url: "finalUrl",
