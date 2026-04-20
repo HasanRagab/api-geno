@@ -1,6 +1,6 @@
 {
 	"name": "api-geno",
-	"version": "0.0.20",
+	"version": "0.0.21",
 	"type": "module",
 	"module": "dist/index.js",
 	"main": "dist/index.js",
@@ -16,7 +16,7 @@
 	"description": "TypeScript OpenAPI-based API client generator with zod validation and neverthrow results.",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/HasanRagab/api-geno.git"
+		"url": "git+https://github.com/HasanRagab/api-geno.git"
 	},
 	"bugs": {
 		"url": "https://github.com/HasanRagab/api-geno/issues"
