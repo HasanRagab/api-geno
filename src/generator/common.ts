@@ -15,35 +15,85 @@ export function generateCommonHelper(): string {
 		"buildUrl",
 		{
 			params:
-				"path: string, params: Record<string, any>, explicitQueryKeys: string[]",
+				"path: string, pathParams: Record<string, any>, queryParams: Record<string, any>, explicitQueryKeys: string[]",
 			returns: "string",
 		},
 		(f) => {
-			f.line("const queryParamsObj = new URLSearchParams();");
-			f.line("const explicitKeysSet = new Set(explicitQueryKeys);");
+			f.docComment([
+				"Replaces path parameters in the URL and builds query string.",
+				"@param path - URL path with placeholders like {id} or :id",
+				"@param pathParams - Object with path parameter values",
+				"@param queryParams - Object with query parameter values",
+				"@param explicitQueryKeys - Array of keys that must be treated as query params",
+				"@returns Complete URL with replaced path and query string",
+			]);
 			f.blank();
-			f.line("explicitQueryKeys.forEach((key) => {");
-			f.indent();
-			f.line("if (params[key] !== undefined) {");
-			f.indent();
-			f.line("queryParamsObj.append(key, String(params[key]));");
-			f.dedent();
-			f.line("}");
-			f.dedent();
-			f.line("});");
+			f.const("queryParamsObj", "new URLSearchParams()");
+			f.const("explicitKeysSet", "new Set(explicitQueryKeys)");
+			f.const("missingParams", "[] as string[]", "string[]");
 			f.blank();
-			f.line("Object.entries(params).forEach(([key, value]) => {");
-			f.indent();
-			f.line("if (value !== undefined && !explicitKeysSet.has(key)) {");
-			f.indent();
-			f.line("queryParamsObj.append(key, String(value));");
-			f.dedent();
-			f.line("}");
-			f.dedent();
-			f.line("});");
+			f.comment("Replace path parameters in the URL");
+			f.const("pathParamPattern", "/\\{([^}]+)\\}|:([a-zA-Z_][a-zA-Z0-9_]*)/g");
+			f.const("placeholders", "new Set<string>()");
 			f.blank();
-			f.line("const queryString = queryParamsObj.toString();");
-			f.return("path + (queryString ? '?' + queryString : '')");
+			f.line("let match;");
+			f.while("(match = pathParamPattern.exec(path)) !== null", (w) => {
+				w.const("paramName", "match[1] || match[2]");
+				w.line("placeholders.add(paramName);");
+			});
+			f.blank();
+			f.line("let replacedPath = path;");
+			f.forEach("placeholders", "paramName", (forEach) => {
+				forEach.ifChain([
+					{
+						condition:
+							"pathParams[paramName] === undefined || pathParams[paramName] === null",
+						body: (b) => {
+							b.line("missingParams.push(paramName);");
+						},
+					},
+					{
+						body: (b) => {
+							b.const(
+								"value",
+								"encodeURIComponent(String(pathParams[paramName]))",
+							);
+							b.assign(
+								"replacedPath",
+								"replacedPath.replace(new RegExp(`\\\\{${paramName}\\\\}|:${paramName}`, 'g'), value)",
+							);
+						},
+					},
+				]);
+			});
+			f.blank();
+			f.if("missingParams.length > 0", (b) => {
+				b.throw(
+					"new Error(`Missing required path parameters: ${missingParams.join(', ')}`)",
+				);
+			});
+			f.blank();
+			f.comment("Build query string");
+			f.forEach("explicitQueryKeys", "key", (forEach) => {
+				forEach.if(
+					"queryParams[key] !== undefined && queryParams[key] !== null",
+					(b) => {
+						b.line("queryParamsObj.append(key, String(queryParams[key]));");
+					},
+				);
+			});
+			f.blank();
+			f.forEach("Object.entries(queryParams)", "[key, value]", (forEach) => {
+				forEach.if(
+					"value !== undefined && value !== null && !explicitKeysSet.has(key)",
+					(b) => {
+						b.line("queryParamsObj.append(key, String(value));");
+					},
+				);
+			});
+			f.blank();
+			f.const("queryString", "queryParamsObj.toString()");
+			f.return("replacedPath + (queryString ? '?' + queryString : '')");
 		},
 	);
 	b.blank();
@@ -160,6 +210,8 @@ export function generateCommonHelper(): string {
 	b.line("path: string;");
 	b.line("method: string;");
 	b.line("params?: P;");
+	b.line("pathParams?: Record<string, any>;");
+	b.line("queryParams?: Record<string, any>;");
 	b.line("paramsSchema?: z.ZodType<P>;");
 	b.line("bodySchema?: z.ZodType<B>;");
 	b.line("explicitQueryKeys?: string[];");
@@ -178,6 +230,8 @@ export function generateCommonHelper(): string {
 	b.line("path,");
 	b.line("method,");
 	b.line("params,");
+	b.line("pathParams: userPathParams,");
+	b.line("queryParams: userQueryParams,");
 	b.line("paramsSchema,");
 	b.line("bodySchema,");
 	b.line("explicitQueryKeys = [],");
@@ -191,6 +245,16 @@ export function generateCommonHelper(): string {
 	b.line("} = options;");
 	b.blank();
 
+	b.line(
+		"// Support both old (params) and new (pathParams + queryParams) signatures",
+	);
+	b.const(
+		"finalPathParams",
+		"userPathParams || (params as Record<string, any>) || {}",
+	);
+	b.const("finalQueryParams", "userQueryParams || {}");
+	b.blank();
+
 	b.const("paramsValidation", "await validateData(paramsSchema, params)");
 	b.if("paramsValidation.isErr()", (b) =>
 		b.return("err(paramsValidation.error)"),
@@ -201,10 +265,22 @@ export function generateCommonHelper(): string {
 	b.if("bodyValidation.isErr()", (b) => b.return("err(bodyValidation.error)"));
 	b.blank();
 
-	b.const(
+	b.line("// Build URL with separate path and query params");
+	b.line("let url: string;");
+	b.line("try {");
+	b.indent();
+	b.assign(
 		"url",
-		"buildUrl(path, (params || {}) as Record<string, any>, explicitQueryKeys)",
+		"buildUrl(path, finalPathParams, finalQueryParams, explicitQueryKeys)",
 	);
+	b.dedent();
+	b.line("} catch (error: any) {");
+	b.indent();
+	b.return("err(new ValidationError(error.message) as any)");
+	b.dedent();
+	b.line("}");
+	b.blank();
+
 	b.const("serializedBody", "serializeBody(body, contentType)");
 	b.const(
 		"finalHeaders",

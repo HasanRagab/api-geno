@@ -48,34 +48,36 @@ function buildMethod(
 
 	const pathParameters = ep.parameters?.filter((p) => p.in === "path") ?? [];
 	const queryParameters = ep.parameters?.filter((p) => p.in === "query") ?? [];
-	const hasParams =
-		pathParameters.length > 0 ||
-		queryParameters.length > 0 ||
-		!!ep.queryParamsRef;
+	const hasPathParams = pathParameters.length > 0;
+	const hasQueryParams = queryParameters.length > 0 || !!ep.queryParamsRef;
+	const hasParams = hasPathParams || hasQueryParams;
 	const queryKeys = queryParameters.map((p) => `'${p.name}'`);
-	const pathTemplate = ep.path
-		.replace(/\{([^}]+)\}/g, (_, name) => `params?.${name}`)
-		.replace(/\u007f([^\u007f]+)\u007f/g, "${$1}");
+	const pathTemplate = ep.path.replace(/\u007f([^\u007f]+)\u007f/g, "${$1}");
 
 	const paramsType = hasParams
 		? (() => {
-				let type = "Record<string, unknown>";
-				if (pathParameters.length > 0) {
-					const parts = pathParameters
+				if (hasPathParams && hasQueryParams) {
+					const pathType = `{ ${pathParameters
 						.map(
 							(p) =>
 								`${p.name}${p.required ? "" : "?"}: ${schemaToTS(p.schema)}`,
 						)
-						.join("; ");
-					type = `{ ${parts} }`;
+						.join("; ")} }`;
+					const queryType = ep.queryParamsRef || "Record<string, unknown>";
+					return `${pathType} & ${queryType}`;
 				}
-				if (ep.queryParamsRef) {
-					type =
-						type === "Record<string, unknown>"
-							? ep.queryParamsRef
-							: `${type} & ${ep.queryParamsRef}`;
+				if (hasPathParams) {
+					return `{ ${pathParameters
+						.map(
+							(p) =>
+								`${p.name}${p.required ? "" : "?"}: ${schemaToTS(p.schema)}`,
+						)
+						.join("; ")} }`;
 				}
-				return type;
+				if (hasQueryParams) {
+					return ep.queryParamsRef || "Record<string, unknown>";
+				}
+				return "Record<string, unknown>";
 			})()
 		: "undefined";
 
@@ -120,13 +122,35 @@ function buildMethod(
 				m.line(`const { ${destructure.join(", ")} } = opts;`);
 			}
 
+			// Separate path params and query params
+			if (hasPathParams && hasQueryParams) {
+				const pathParamNames = pathParameters.map((p) => p.name);
+				const pathParamAssignments = pathParamNames
+					.map((name) => `${name}: (params as any).${name}`)
+					.join(", ");
+				const pathParamRemovals = pathParamNames
+					.map((name) => `${name}: undefined`)
+					.join(", ");
+				m.line(`const pathParams = params ? { ${pathParamAssignments} } : {};`);
+				m.line(
+					`const queryParams = params ? { ...params as any, ${pathParamRemovals} } : {};`,
+				);
+			} else if (hasPathParams) {
+				m.line(`const pathParams = params || {};`);
+				m.line(`const queryParams = {};`);
+			} else if (hasQueryParams) {
+				m.line(`const pathParams = {};`);
+				m.line(`const queryParams = params || {};`);
+			}
+
 			m.line(
 				`return await request<${responseType}, ${paramsType}, ${bodyType}>(`,
 			);
 			m.object({
 				path: `\`${pathTemplate}\``,
 				method: `'${lowerMethod}'`,
-				params: hasParams ? "params" : undefined,
+				pathParams: hasPathParams ? "pathParams" : undefined,
+				queryParams: hasQueryParams ? "queryParams" : undefined,
 				paramsSchema: ep.queryParamsRef
 					? `${ep.queryParamsRef}Schema`
 					: undefined,
