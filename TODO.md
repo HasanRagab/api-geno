@@ -159,7 +159,6 @@ createService({
 
 * [x] strict mode → warns on missing responseRef, enforces typing
 * [x] loose mode → defaults unknown, accepts any response type
-* [ ] frontend mode → React Query hooks (future)
 * *Note: strict/loose modes now available in generateClient options*
 
 ---
