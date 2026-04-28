@@ -7,8 +7,8 @@ export function generateErrors(
 	const includeClasses = style !== "shape";
 	const formatParamType =
 		style === "shape"
-			? "AppErrorShape | Error | any"
-			: "AppError | Error | any";
+			? "AppErrorShape | Error | unknown"
+			: "AppError | Error | unknown";
 
 	// ─── Types and Shapes ─────────────────────────────
 	b.section("Error Types and Shapes")

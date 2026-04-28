@@ -134,10 +134,12 @@ export function getZodType(schema: Schema): string {
 	}
 
 	if (schema.default !== undefined) {
-		const defaultValue =
-			typeof schema.default === "string"
-				? `"${schema.default.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
-				: schema.default;
+		let defaultValue: string;
+		if (typeof schema.default === "string") {
+			defaultValue = `"${schema.default.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+		} else {
+			defaultValue = JSON.stringify(schema.default);
+		}
 		zodType += `.default(${defaultValue})`;
 	}
 
