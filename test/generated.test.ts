@@ -279,7 +279,10 @@ describe("generated code", () => {
 
 	test("query params handled in request helper", () => {
 		const helper = safeRead("request-helper.ts");
-		expect(helper).toMatch(/URLSearchParams\(queryParams\)/);
+		// new URLSearchParams(queryParams as Record<string, string>).toString();
+		expect(helper).toMatch(
+			/URLSearchParams\(queryParams as Record<string, string>\)/,
+		);
 		expect(helper).toMatch(/validateData\(paramsSchema, pathParams\)/);
 	});
 
