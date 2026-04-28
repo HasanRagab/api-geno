@@ -203,7 +203,9 @@ export function generateErrors(
 							b.return("err.message || String(err)"),
 						);
 					}
-					t.if("err && err.message", (b) => b.return("err.message"));
+					t.if("err && typeof err === 'object' && 'message' in err", (b) =>
+						b.return("(err as { message: string }).message"),
+					);
 					t.return("String(err)");
 				},
 				"e",
