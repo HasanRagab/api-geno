@@ -61,7 +61,7 @@ export function generateCommonHelper(): string {
 						);
 						inner.return("ok(undefined)");
 					});
-					c.return("err(new ValidationError(formatError(error)) as any)");
+					c.return("err(new ValidationError(formatError(error)))");
 				},
 			);
 		},
@@ -71,7 +71,10 @@ export function generateCommonHelper(): string {
 	// --- serializeBody helper ---
 	b.function(
 		"serializeBody",
-		{ params: "body: unknown, contentType: string", returns: "any" },
+		{
+			params: "body: unknown, contentType: string",
+			returns: "string | FormData | undefined | string | number | boolean",
+		},
 		(f) => {
 			f.if("body === undefined || body === null", (b) => b.return("undefined"));
 			f.const("lowerContentType", "contentType.toLowerCase()");
@@ -80,7 +83,14 @@ export function generateCommonHelper(): string {
 			);
 			f.if(
 				"lowerContentType.includes('application/x-www-form-urlencoded')",
-				(b) => b.return("new URLSearchParams(body).toString()"),
+				(b) => {
+					b.if("typeof body === 'object' && body !== null", (inner) => {
+						inner.return(
+							"new URLSearchParams(body as Record<string, string>).toString()",
+						);
+					});
+					b.return("''");
+				},
 			);
 			f.if("lowerContentType.includes('multipart/form-data')", (b) => {
 				b.if("body instanceof FormData", (inner) => inner.return("body"));
@@ -103,14 +113,16 @@ export function generateCommonHelper(): string {
 					},
 					{
 						condition: "value !== undefined",
-						body: (b) => b.line("formData.append(key, value)"),
+						body: (b) => b.line("formData.append(key, String(value))"),
 					},
 				]);
 				b.dedent();
 				b.line("});");
 				b.return("formData");
 			});
-			f.return("body");
+			f.return(
+				"body as string | FormData | undefined | string | number | boolean",
+			);
 		},
 	);
 	b.blank();
@@ -202,13 +214,17 @@ export function generateCommonHelper(): string {
 	b.dedent();
 	b.line("} catch (error: unknown) {");
 	b.indent();
-	b.return("err(new ValidationError(error.message) as any)");
+	b.const("message", "error instanceof Error ? error.message : String(error)");
+	b.return("err(new ValidationError(message))");
 	b.dedent();
 	b.line("}");
 	b.blank();
 
 	b.line("// Append query params to URL");
-	b.const("queryStr", "new URLSearchParams(queryParams).toString()");
+	b.const(
+		"queryStr",
+		"new URLSearchParams(queryParams as Record<string, string>).toString()",
+	);
 	b.if("queryStr", (b) => b.assign("url", "url + '?' + queryStr"));
 	b.blank();
 
@@ -243,7 +259,9 @@ export function generateCommonHelper(): string {
 	b.blank();
 	b.line("protected mergeRequestOpts(");
 	b.indent();
-	b.line("base: Partial<RequestOpts>,");
+	b.line(
+		"base: Pick<RequestOpts, 'path' | 'method'> & Partial<Omit<RequestOpts, 'path' | 'method'>>,",
+	);
 	b.line(
 		"opts?: { headers?: Record<string, string>; cookies?: Record<string, string> },",
 	);
@@ -252,7 +270,7 @@ export function generateCommonHelper(): string {
 	b.indent();
 	b.const("{ headers, cookies }", "opts || {}");
 	b.return(
-		"{ ...(base as any), ...(headers && Object.keys(headers).length > 0 ? { headers } : {}), ...(cookies && Object.keys(cookies).length > 0 ? { cookies } : {}) }",
+		"{ ...(base), ...(headers && Object.keys(headers).length > 0 ? { headers } : {}), ...(cookies && Object.keys(cookies).length > 0 ? { cookies } : {}) }",
 	);
 	b.dedent();
 	b.line("}");
@@ -272,13 +290,13 @@ export function generateCommonHelper(): string {
 	b.line("opts?: Record<string, unknown>,");
 	b.dedent();
 	b.line(
-		"): Promise<{ params?: unknown; body?: unknown; pathParams?: unknown; queryParams?: unknown }> {",
+		"): Promise<{ params?: unknown; body?: unknown; pathParams?: Record<string, unknown>; queryParams?: Record<string, unknown> }> {",
 	);
 	b.indent();
-	b.const("{ params, body, headers, cookies }", "opts || {}");
+	b.const("{ params, body }", "opts || {}");
 	b.blank();
-	b.line("let pathParams: unknown;");
-	b.line("let queryParams: unknown;");
+	b.line("let pathParams: Record<string, unknown> = {};");
+	b.line("let queryParams: Record<string, unknown> = {};");
 	b.blank();
 	b.if(
 		"config.pathParamNames && config.pathParamNames.length > 0 && params",
@@ -286,19 +304,24 @@ export function generateCommonHelper(): string {
 			b.const("paramNames", "new Set(config.pathParamNames)");
 			b.assign(
 				"pathParams",
-				"Object.fromEntries(Object.entries(params as any).filter(([k]) => paramNames.has(k)))",
+				"Object.fromEntries(Object.entries(params).filter(([k]) => paramNames.has(k)))",
 			);
 			b.assign(
 				"queryParams",
-				"Object.fromEntries(Object.entries(params as any).filter(([k]) => !paramNames.has(k)))",
+				"Object.fromEntries(Object.entries(params).filter(([k]) => !paramNames.has(k)))",
 			);
 		},
 	);
-	b.if("!config.pathParamNames || config.pathParamNames.length === 0", (b) => {
-		b.assign("queryParams", "params");
-	});
+	b.if(
+		"(!config.pathParamNames || config.pathParamNames.length === 0) && params",
+		(b) => {
+			b.assign("queryParams", "params as Record<string, unknown>");
+		},
+	);
 	b.blank();
-	b.return("{ params, body, pathParams, queryParams }");
+	b.return(
+		"{ params, body, pathParams: Object.keys(pathParams).length > 0 ? pathParams : undefined, queryParams: Object.keys(queryParams).length > 0 ? queryParams : undefined }",
+	);
 	b.dedent();
 	b.line("}");
 	b.dedent();

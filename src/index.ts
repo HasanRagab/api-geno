@@ -43,8 +43,12 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 		},
 		(f) => {
 			f.if("value === undefined", (b) => b.return("undefined"));
-			f.if("typeof value === 'function'", (b) => b.return("(value as any)()"));
-			f.return("value");
+
+			f.if("typeof value === 'function'", (b) => {
+				b.return("(value as Function)()");
+			});
+
+			f.return("value as T");
 		},
 	);
 
@@ -82,7 +86,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 			f.blank();
 
 			f.if("headers && typeof headers === 'object'", (b) => {
-				b.forOf("[key, value]", "Object.entries(headers as any)", (inner) => {
+				b.forOf("[key, value]", "Object.entries(headers)", (inner) => {
 					inner.ifChain([
 						{
 							condition: "typeof value === 'function'",
@@ -196,7 +200,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 						"contentType && !/application\\/json|\\+json|\\/json|text\\//i.test(contentType)",
 						(b) => {
 							b.const("blob", "await response.blob()");
-							b.return("ok(blob as any)");
+							b.return("ok(blob)");
 						},
 					);
 					tryBody.if(
@@ -211,7 +215,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 							"err(new HttpError(response.status, response.statusText, body))",
 						),
 					);
-					tryBody.return("ok(body as any)");
+					tryBody.return("ok(body)");
 				} else {
 					tryBody.const("contentType", "headers['Content-Type']");
 					tryBody.line(
@@ -230,7 +234,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 					});
 					tryBody.dedent();
 					tryBody.line(");");
-					tryBody.return("ok(response.data as any)");
+					tryBody.return("ok(response.data)");
 				}
 			},
 			"error: any",
