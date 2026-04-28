@@ -119,37 +119,11 @@ function buildMethod(
 		methodName,
 		{ async: true, params: optsDecl, returns: returnType },
 		(m) => {
-			const destructure: string[] = [];
-			if (paramsType) destructure.push("params");
-			if (bodyType) destructure.push("body");
-			destructure.push("headers", "cookies");
-
-			m.line(`const { ${destructure.join(", ")} } = opts || {};`);
-			m.blank();
-
-			// Separate path and query params if both exist
-			if (hasPathParams && hasQueryParams) {
-				const pathParamNames = pathParameters.map((p) => p.name);
-				const pathParamAssignments = pathParamNames
-					.map((name) => `${name}: (params as unknown).${name}`)
-					.join(", ");
-				const pathParamRemovals = pathParamNames
-					.map((name) => `${name}: undefined`)
-					.join(", ");
-				m.line(
-					`const pathParams = params ? { ${pathParamAssignments} } : undefined;`,
-				);
-				m.line(
-					`const queryParams = params ? { ...params as unknown, ${pathParamRemovals} } : undefined;`,
-				);
-			} else if (hasPathParams) {
-				m.line(`const pathParams = (params || {}) as Record<string, unknown>;`);
-			} else if (hasQueryParams) {
-				m.line(
-					`const queryParams = (params || {}) as Record<string, unknown>;`,
-				);
-			}
-
+			const pathParamNames = pathParameters.map((p) => p.name);
+			m.const(
+				"{ pathParams, queryParams, body }",
+				`await this.createMethod({ path: \`${pathTemplate}\`, method: '${lowerMethod}'${pathParamNames.length > 0 ? `, pathParamNames: [${pathParamNames.map((n) => `'${n}'`).join(", ")}]` : ""} }, opts)`,
+			);
 			m.blank();
 			m.line(`return this.request<${responseType}>({`);
 			m.indent();
@@ -165,10 +139,10 @@ function buildMethod(
 				m.line(`paramsSchema: ${ep.queryParamsRef}Schema,`);
 			}
 			m.line(
-				"...(headers && Object.keys(headers).length > 0 ? { headers } : {}),",
+				"...(opts?.headers && Object.keys(opts.headers).length > 0 ? { headers: opts.headers } : {}),",
 			);
 			m.line(
-				"...(cookies && Object.keys(cookies).length > 0 ? { cookies } : {}),",
+				"...(opts?.cookies && Object.keys(opts.cookies).length > 0 ? { cookies: opts.cookies } : {}),",
 			);
 			if (contentType !== "application/json") {
 				m.line(`contentType: '${contentType}',`);

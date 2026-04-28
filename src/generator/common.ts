@@ -256,6 +256,51 @@ export function generateCommonHelper(): string {
 	);
 	b.dedent();
 	b.line("}");
+	b.blank();
+	b.line("protected async createMethod<T>(");
+	b.indent();
+	b.line("config: {");
+	b.indent();
+	b.line("path: string;");
+	b.line("method: string;");
+	b.line("pathParamNames?: string[];");
+	b.line("bodySchema?: string;");
+	b.line("paramsSchema?: string;");
+	b.line("contentType?: string;");
+	b.dedent();
+	b.line("},");
+	b.line("opts?: Record<string, unknown>,");
+	b.dedent();
+	b.line(
+		"): Promise<{ params?: unknown; body?: unknown; pathParams?: unknown; queryParams?: unknown }> {",
+	);
+	b.indent();
+	b.const("{ params, body, headers, cookies }", "opts || {}");
+	b.blank();
+	b.line("let pathParams: unknown;");
+	b.line("let queryParams: unknown;");
+	b.blank();
+	b.if(
+		"config.pathParamNames && config.pathParamNames.length > 0 && params",
+		(b) => {
+			b.const("paramNames", "new Set(config.pathParamNames)");
+			b.assign(
+				"pathParams",
+				"Object.fromEntries(Object.entries(params as any).filter(([k]) => paramNames.has(k)))",
+			);
+			b.assign(
+				"queryParams",
+				"Object.fromEntries(Object.entries(params as any).filter(([k]) => !paramNames.has(k)))",
+			);
+		},
+	);
+	b.if("!config.pathParamNames || config.pathParamNames.length === 0", (b) => {
+		b.assign("queryParams", "params");
+	});
+	b.blank();
+	b.return("{ params, body, pathParams, queryParams }");
+	b.dedent();
+	b.line("}");
 	b.dedent();
 	b.line("}");
 
