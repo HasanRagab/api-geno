@@ -15,7 +15,7 @@ export function generateCommonHelper(): string {
 	b.function(
 		"buildUrl",
 		{
-			params: "path: string, pathParams?: Record<string, any>",
+			params: "path: string, pathParams?: Record<string, unknown>",
 			returns: "string",
 		},
 		(f) => {
@@ -40,7 +40,7 @@ export function generateCommonHelper(): string {
 		"validateData",
 		{
 			params:
-				"schema: z.ZodType<any> | undefined, data: any, mode: 'strict' | 'warn' | 'none' = 'strict'",
+				"schema: z.ZodType<unknown> | undefined, data: unknown, mode: 'strict' | 'warn' | 'none' = 'strict'",
 			returns: "Result<void, AppError>",
 		},
 		(f) => {
@@ -71,7 +71,7 @@ export function generateCommonHelper(): string {
 	// --- serializeBody helper ---
 	b.function(
 		"serializeBody",
-		{ params: "body: any, contentType: string", returns: "any" },
+		{ params: "body: unknown, contentType: string", returns: "any" },
 		(f) => {
 			f.if("body === undefined || body === null", (b) => b.return("undefined"));
 			f.const("lowerContentType", "contentType.toLowerCase()");
@@ -86,7 +86,7 @@ export function generateCommonHelper(): string {
 				b.if("body instanceof FormData", (inner) => inner.return("body"));
 				b.const("formData", "new FormData()");
 				b.line(
-					"Object.entries(body as Record<string, any>).forEach(([key, value]) => {",
+					"Object.entries(body as Record<string, unknown>).forEach(([key, value]) => {",
 				);
 				b.indent();
 				b.ifChain([
@@ -142,23 +142,26 @@ export function generateCommonHelper(): string {
 	);
 	b.blank();
 
-	b.line("export async function request<T>(");
-	b.indent();
-	b.line("options: {");
+	b.line("export type RequestOpts = {");
 	b.indent();
 	b.line("path: string;");
 	b.line("method: string;");
-	b.line("pathParams?: Record<string, any>;");
-	b.line("queryParams?: Record<string, any>;");
-	b.line("paramsSchema?: z.ZodType<any>;");
-	b.line("bodySchema?: z.ZodType<any>;");
-	b.line("body?: any;");
+	b.line("pathParams?: Record<string, unknown>;");
+	b.line("queryParams?: Record<string, unknown>;");
+	b.line("paramsSchema?: z.ZodType<unknown>;");
+	b.line("bodySchema?: z.ZodType<unknown>;");
+	b.line("body?: unknown;");
 	b.line("headers?: Record<string, string>;");
 	b.line("cookies?: Record<string, string>;");
 	b.line("contentType?: string;");
 	b.line("validationMode?: 'strict' | 'warn' | 'none';");
 	b.dedent();
-	b.line("},");
+	b.line("};");
+	b.blank();
+
+	b.line("export async function request<T>(");
+	b.indent();
+	b.line("options: RequestOpts,");
 	b.line("config: OpenAPIConfig");
 	b.dedent();
 	b.line("): Promise<Result<T, AppError>> {");
@@ -197,7 +200,7 @@ export function generateCommonHelper(): string {
 	b.indent();
 	b.assign("url", "buildUrl(path, pathParams)");
 	b.dedent();
-	b.line("} catch (error: any) {");
+	b.line("} catch (error: unknown) {");
 	b.indent();
 	b.return("err(new ValidationError(error.message) as any)");
 	b.dedent();
@@ -232,21 +235,7 @@ export function generateCommonHelper(): string {
 	b.indent();
 	b.line("constructor(protected readonly config: OpenAPIConfig) {}");
 	b.blank();
-	b.line("protected async request<T>(options: {");
-	b.indent();
-	b.line("path: string;");
-	b.line("method: string;");
-	b.line("pathParams?: Record<string, any>;");
-	b.line("queryParams?: Record<string, any>;");
-	b.line("paramsSchema?: z.ZodType<any>;");
-	b.line("bodySchema?: z.ZodType<any>;");
-	b.line("body?: any;");
-	b.line("headers?: Record<string, string>;");
-	b.line("cookies?: Record<string, string>;");
-	b.line("contentType?: string;");
-	b.line("validationMode?: 'strict' | 'warn' | 'none';");
-	b.dedent();
-	b.line("}) {");
+	b.line("protected async request<T>(options: RequestOpts) {");
 	b.indent();
 	b.return("request<T>(options, this.config)");
 	b.dedent();

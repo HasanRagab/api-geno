@@ -41,9 +41,16 @@ function buildMethod(
 	const methodName = toMethodName(ep, usedNames);
 	const method = ep.method.toUpperCase();
 	const lowerMethod = method.toLowerCase();
-	const responseType = ep.responseRef || "any";
-	const hasBody =
-		["POST", "PUT", "PATCH", "DELETE"].includes(method) && !!ep.requestBodyRef;
+	const responseType = ep.responseRef || "unknown";
+	const isMutation = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+	const hasBody = isMutation && !!ep.requestBodyRef;
+
+	// Warn if mutation has no request body schema
+	if (isMutation && !ep.requestBodyRef) {
+		console.warn(
+			`[${methodName}] Mutation has no bodySchema - schema-driven generation requires request body validation`,
+		);
+	}
 	const contentType = ep.contentType || "application/json";
 
 	const pathParameters = ep.parameters?.filter((p) => p.in === "path") ?? [];
@@ -76,14 +83,16 @@ function buildMethod(
 	})();
 
 	const bodyType = hasBody ? ep.requestBodyRef || "unknown" : undefined;
+	const hasRequiredParams =
+		paramsType && pathParameters.some((p) => p.required);
 	const optsParts: string[] = [];
-	if (paramsType) optsParts.push(`params?: ${paramsType}`);
+	if (paramsType)
+		optsParts.push(`params${hasRequiredParams ? "" : "?"}: ${paramsType}`);
 	if (bodyType) optsParts.push(`body?: ${bodyType}`);
 	optsParts.push("headers?: Record<string, string>");
 	optsParts.push("cookies?: Record<string, string>");
 
-	const optsDecl =
-		optsParts.length > 0 ? `opts?: { ${optsParts.join("; ")} }` : "";
+	const optsDecl = `opts?: { ${optsParts.join("; ")} }`;
 	const returnType = `Promise<Result<${responseType}, ${errorTypeName}>>`;
 	const docLines: string[] = [];
 	if (ep.summary) docLines.push(ep.summary);
@@ -104,7 +113,7 @@ function buildMethod(
 			const destructure: string[] = [];
 			if (paramsType) destructure.push("params");
 			if (bodyType) destructure.push("body");
-			destructure.push("headers = {}", "cookies = {}");
+			destructure.push("headers", "cookies");
 
 			m.line(`const { ${destructure.join(", ")} } = opts || {};`);
 			m.blank();
@@ -113,21 +122,23 @@ function buildMethod(
 			if (hasPathParams && hasQueryParams) {
 				const pathParamNames = pathParameters.map((p) => p.name);
 				const pathParamAssignments = pathParamNames
-					.map((name) => `${name}: (params as any).${name}`)
+					.map((name) => `${name}: (params as unknown).${name}`)
 					.join(", ");
 				const pathParamRemovals = pathParamNames
 					.map((name) => `${name}: undefined`)
 					.join(", ");
-				m.line(`const pathParams = params ? { ${pathParamAssignments} } : {};`);
 				m.line(
-					`const queryParams = params ? { ...params as any, ${pathParamRemovals} } : {};`,
+					`const pathParams = params ? { ${pathParamAssignments} } : undefined;`,
+				);
+				m.line(
+					`const queryParams = params ? { ...params as unknown, ${pathParamRemovals} } : undefined;`,
 				);
 			} else if (hasPathParams) {
-				m.line(`const pathParams = (params || {}) as Record<string, any>;`);
-				m.line(`const queryParams = {};`);
+				m.line(`const pathParams = (params || {}) as Record<string, unknown>;`);
 			} else if (hasQueryParams) {
-				m.line(`const pathParams = {};`);
-				m.line(`const queryParams = (params || {}) as Record<string, any>;`);
+				m.line(
+					`const queryParams = (params || {}) as Record<string, unknown>;`,
+				);
 			}
 
 			m.blank();
@@ -144,8 +155,12 @@ function buildMethod(
 			if (ep.queryParamsRef) {
 				m.line(`paramsSchema: ${ep.queryParamsRef}Schema,`);
 			}
-			m.line("headers,");
-			m.line("cookies,");
+			m.line(
+				"...(headers && Object.keys(headers).length > 0 ? { headers } : {}),",
+			);
+			m.line(
+				"...(cookies && Object.keys(cookies).length > 0 ? { cookies } : {}),",
+			);
 			if (contentType !== "application/json") {
 				m.line(`contentType: '${contentType}',`);
 			}
@@ -232,15 +247,16 @@ export function generateClient(
 	// Generate service files
 	services.forEach((eps, serviceName) => {
 		const serviceBuilder = new CodeBuilder();
+		// Import order: external, internal core, errors, types
+		serviceBuilder.import([{ name: "Result" }], "neverthrow");
 		serviceBuilder.import(
-			["BaseService", "request"],
+			["BaseService"],
 			options.flat ? "./request-helper" : "../request-helper",
 		);
 		serviceBuilder.import(
 			["OpenAPIConfig"],
 			options.flat ? "./openapi.config" : "../openapi.config",
 		);
-		serviceBuilder.import([{ name: "Result" }], "neverthrow");
 		serviceBuilder.import(
 			[errorTypeName],
 			options.flat ? "./errors" : "../errors",
