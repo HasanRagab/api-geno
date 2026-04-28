@@ -212,6 +212,15 @@ export function generateClient(
 				});
 			},
 		);
+		cls.blank();
+		// Update config at runtime
+		cls.method(
+			"updateConfig",
+			{ params: "partial: Partial<OpenAPIConfig>" },
+			(m) => {
+				m.line("Object.assign(this.config, partial);");
+			},
+		);
 	});
 
 	// Export services
