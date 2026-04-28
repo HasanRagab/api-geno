@@ -25,7 +25,6 @@ describe("generated code", () => {
 	let errors: string;
 	let serviceFilenames: string[];
 	let serviceAggregate: string;
-	let typeFilenames: string[];
 
 	beforeAll(() => {
 		client = safeRead("client.ts");
@@ -40,11 +39,6 @@ describe("generated code", () => {
 		serviceAggregate = serviceFilenames
 			.map((f) => safeRead(`services/${f}`))
 			.join("\n");
-
-		const typeDir = `${GENERATED_DIR}/types`;
-		typeFilenames = existsSync(typeDir)
-			? readdirSync(typeDir).filter((f) => f.endsWith(".ts"))
-			: [];
 	});
 
 	// --------------------------------------------------
@@ -113,8 +107,8 @@ describe("generated code", () => {
 		const generated = generateClient(endpoints);
 		const service = generated["services/UsersService.ts"];
 
-		expect(service).toContain("static async getUser(");
-		expect(service).toContain("static async getUser1(");
+		expect(service).toContain("async getUser(");
+		expect(service).toContain("async getUser1(");
 	});
 
 	test("supports DELETE endpoints with requestBodyRef in opts and parser", () => {
@@ -199,29 +193,17 @@ describe("generated code", () => {
 		fs.unlinkSync(tempPath);
 
 		expect(files["services/ItemService.ts"]).toContain("getItemX");
-		const schemaFile = Object.entries(files).find(
-			([key]) => key === "types/Item.ts",
-		);
-		expect(schemaFile).toBeDefined();
-		expect(schemaFile?.[1]).toContain("transformed");
+		expect(files["types.ts"]).toContain("transformed");
 	});
 
 	test("generated types preserve nested component references", () => {
-		expect(typeFilenames.length).toBeGreaterThan(0);
-		const sampleType = typeFilenames.includes("CourseResponseDto.ts")
-			? "CourseResponseDto.ts"
-			: typeFilenames[0];
-		const sampleTypeContent = read(`types/${sampleType}`);
+		expect(types.length).toBeGreaterThan(0);
+		expect(types).toContain("export const");
+		expect(types).toContain("export type");
 
-		expect(sampleTypeContent).toContain("export const");
-		expect(sampleTypeContent).toContain("export type");
-
-		if (typeFilenames.includes("PaginationMetaDto.ts")) {
-			const paginationContent = read("types/PaginationMetaDto.ts");
-			expect(paginationContent).toContain(
-				"export const PaginationMetaDtoSchema",
-			);
-			expect(paginationContent).toContain(
+		if (types.includes("PaginationMetaDto")) {
+			expect(types).toContain("export const PaginationMetaDtoSchema");
+			expect(types).toContain(
 				"export type PaginationMetaDto = z.infer<typeof PaginationMetaDtoSchema>",
 			);
 		}
@@ -264,18 +246,15 @@ describe("generated code", () => {
 	// --------------------------------------------------
 
 	test("arrays are generated correctly in zod schema", () => {
-		const examSchema = read("types/ExamJson.ts");
-		expect(examSchema).toMatch(/z\.array\(/);
+		expect(types).toMatch(/z\.array\(/);
 	});
 
 	test("nullable fields handled in zod schema", () => {
-		const examSchema = read("types/ExamJson.ts");
-		expect(examSchema).toMatch(/\.nullable\(\)/);
+		expect(types).toMatch(/\.nullable\(\)/);
 	});
 
 	test("enums are generated in zod schema", () => {
-		const examSchema = read("types/ExamJson.ts");
-		expect(examSchema).toMatch(/z\.enum\(/);
+		expect(types).toMatch(/z\.enum\(/);
 	});
 
 	// --------------------------------------------------
@@ -283,8 +262,8 @@ describe("generated code", () => {
 	// --------------------------------------------------
 
 	test("client exports services only (facade)", () => {
+		expect(client).toContain("export class ApiClient");
 		expect(client).toContain("export {");
-		expect(client).not.toContain("export class");
 	});
 
 	test("service methods include params/body/response typing when needed", () => {
@@ -300,8 +279,8 @@ describe("generated code", () => {
 
 	test("query params handled in request helper", () => {
 		const helper = safeRead("request-helper.ts");
-		expect(helper).toMatch(/queryParamsObj/);
-		expect(helper).toMatch(/validateData\(paramsSchema, params\)/);
+		expect(helper).toMatch(/URLSearchParams\(queryParams\)/);
+		expect(helper).toMatch(/validateData\(paramsSchema, pathParams\)/);
 	});
 
 	test("client uses formatError in request helper", () => {
@@ -334,13 +313,14 @@ describe("generated code", () => {
 	// --------------------------------------------------
 
 	test("types snapshot", () => {
-		// Snapshot disabled after layout changed to per-file/type exports.
-		expect(types).toContain("export * from './types/");
+		// Types consolidated into single file
+		expect(types).toContain("export type");
+		expect(types).toContain("z.infer<typeof");
 	});
 
 	test("client snapshot", () => {
+		expect(client).toContain("export class ApiClient");
 		expect(client).toContain("export {");
-		expect(client).not.toContain("export class");
 	});
 
 	test("errors snapshot", () => {

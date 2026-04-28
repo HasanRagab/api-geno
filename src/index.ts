@@ -26,7 +26,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 	// ── HttpAdapter interface ────────────────────────────────────
 	b.interface("HttpAdapter", {
 		request: {
-			type: "<T>(url: string, options: any) => Promise<Result<T, AppError>>",
+			type: "<T>(url: string, options: any, config: OpenAPIConfig) => Promise<Result<T, AppError>>",
 		},
 	});
 
@@ -64,17 +64,16 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 	// ── prepareRequest helper ────────────────────────────────────
 	b.function(
 		"prepareRequest",
-		{ async: true, params: "url: string, options: any" },
+		{ async: true, params: "url: string, options: any, config: OpenAPIConfig" },
 		(f) => {
-			f.const("token", "await resolveValue(OpenAPI.TOKEN)");
-			f.const("username", "await resolveValue(OpenAPI.USERNAME)");
-			f.const("password", "await resolveValue(OpenAPI.PASSWORD)");
-			f.const("headers", "await resolveValue(OpenAPI.HEADERS)");
-			f.const("security", "options.security || []");
+			f.const("token", "await resolveValue(config.TOKEN)");
+			f.const("username", "await resolveValue(config.USERNAME)");
+			f.const("password", "await resolveValue(config.PASSWORD)");
+			f.const("headers", "await resolveValue(config.HEADERS)");
 			f.blank();
 			f.let(
 				"finalUrl",
-				"OpenAPI.BASE + (OpenAPI.ENCODE_PATH ? OpenAPI.ENCODE_PATH(url) : url)",
+				"config.BASE + (config.ENCODE_PATH ? config.ENCODE_PATH(url) : url)",
 			);
 			f.const(
 				"finalHeaders",
@@ -99,7 +98,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 			});
 
 			f.blank();
-			f.const("authScheme", "OpenAPI.AUTH_SCHEME");
+			f.const("authScheme", "config.AUTH_SCHEME");
 			f.ifChain([
 				{
 					condition: "authScheme === 'bearer' && token",
@@ -119,9 +118,9 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 				{
 					condition: "authScheme === 'apiKey'",
 					body: (b) => {
-						b.const("apiKeyVal", "await resolveValue(OpenAPI.API_KEY)");
-						b.const("apiKeyName", "OpenAPI.API_KEY_NAME");
-						b.const("apiKeyIn", "OpenAPI.API_KEY_IN || 'header'");
+						b.const("apiKeyVal", "await resolveValue(config.API_KEY)");
+						b.const("apiKeyName", "config.API_KEY_NAME");
+						b.const("apiKeyIn", "config.API_KEY_IN || 'header'");
 						b.if("apiKeyVal && apiKeyName", (inner) => {
 							inner.ifChain([
 								{
@@ -155,12 +154,12 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 	// ── httpAdapter export ───────────────────────────────────────
 	b.line("export const httpAdapter: HttpAdapter = {");
 	b.indent();
-	b.method("request", { async: true, params: "url, options" }, (m) => {
+	b.method("request", { async: true, params: "url, options, config" }, (m) => {
 		m.tryCatch(
 			(tryBody) => {
 				tryBody.const(
 					"{ finalUrl, finalHeaders }",
-					"await prepareRequest(url, options)",
+					"await prepareRequest(url, options, config)",
 				);
 				tryBody.const(
 					"isFormData",
@@ -179,7 +178,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 						method: "options.method || 'GET'",
 						headers: "headers",
 						body: "options.body",
-						credentials: "OpenAPI.WITH_CREDENTIALS ? 'include' : 'same-origin'",
+						credentials: "config.WITH_CREDENTIALS ? 'include' : 'same-origin'",
 					});
 					tryBody.dedent();
 					tryBody.line(");");
@@ -216,7 +215,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 				} else {
 					tryBody.const("contentType", "headers['Content-Type']");
 					tryBody.line(
-						"const axiosClient = (OpenAPI.AXIOS_INSTANCE ?? axios) as typeof axios;",
+						"const axiosClient = (config.AXIOS_INSTANCE ?? axios) as typeof axios;",
 					);
 					tryBody.line("const response = await axiosClient(");
 					tryBody.indent();
@@ -225,7 +224,7 @@ function generateHttpAdapter(adapter: "axios" | "fetch" = "axios"): string {
 						method: 'options.method || "GET"',
 						headers: "headers",
 						data: "options.body",
-						withCredentials: "OpenAPI.WITH_CREDENTIALS",
+						withCredentials: "config.WITH_CREDENTIALS",
 						responseType:
 							"contentType && !/application\\/json|\\+json|\\/json|text\\//i.test(contentType) ? 'blob' : 'json'",
 					});

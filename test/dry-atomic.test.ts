@@ -13,7 +13,7 @@ describe("DRY, Same, and Atomic Generated Code", () => {
 		expect(helper).toContain("function validateData");
 		expect(helper).toContain("function serializeBody");
 		expect(helper).toContain("function getHeaders");
-		expect(helper).toContain("await validateData(paramsSchema, params)");
+		expect(helper).toContain("await validateData(paramsSchema, pathParams)");
 		expect(helper).toContain("await validateData(bodySchema, body)");
 	});
 
@@ -27,7 +27,7 @@ describe("DRY, Same, and Atomic Generated Code", () => {
 
 		const content = files[serviceFile];
 
-		expect(content).toContain("return await request<");
+		expect(content).toContain("return this.request<");
 
 		// It should NOT contain default application/json if it's the default
 		expect(content).not.toContain("contentType: 'application/json'");
@@ -40,7 +40,7 @@ describe("DRY, Same, and Atomic Generated Code", () => {
 		const files = generateFromOpenAPI(specPath);
 		const client = files["client.ts"];
 
-		expect(client).toContain("import { httpAdapter } from './http-adapter';");
+		expect(client).toContain("import { BaseService } from './request-helper';");
 		expect(client).toContain("import { ok, err, Result } from 'neverthrow';");
 	});
 });

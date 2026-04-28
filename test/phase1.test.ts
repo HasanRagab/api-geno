@@ -68,17 +68,17 @@ describe("Phase 1 Enhancements", () => {
 		fs.unlinkSync(tempPath);
 
 		const petService = files["services/PetService.ts"];
-		const petType = files["types/Pet.ts"];
+		const types = files["types.ts"];
 
 		// Check JSDoc in Service
 		expect(petService).toContain("* Add a pet");
 		expect(petService).toContain("* Adds a new pet to the store");
 
 		// Check JSDoc in Types
-		expect(petType).toContain("* A pet object");
+		expect(types).toContain("* A pet object");
 
 		// Check Discriminator
-		expect(petType).toContain('z.discriminatedUnion("petType"');
+		expect(types).toContain('z.discriminatedUnion("petType"');
 	});
 
 	test("Number enums are handled correctly", () => {
@@ -102,8 +102,8 @@ describe("Phase 1 Enhancements", () => {
 		const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
 		fs.unlinkSync(tempPath);
 
-		const statusType = files["types/Status.ts"];
-		expect(statusType).toContain(
+		const types = files["types.ts"];
+		expect(types).toContain(
 			"z.union([z.literal(1), z.literal(2), z.literal(3)])",
 		);
 	});
@@ -133,9 +133,9 @@ describe("Phase 1 Enhancements", () => {
 		const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
 		fs.unlinkSync(tempPath);
 
-		const userType = files["types/User.ts"];
-		expect(userType).toContain(".email()");
-		expect(userType).toContain(".uuid()");
-		expect(userType).toContain(".datetime()");
+		const types = files["types.ts"];
+		expect(types).toContain(".email()");
+		expect(types).toContain(".uuid()");
+		expect(types).toContain(".datetime()");
 	});
 });

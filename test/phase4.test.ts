@@ -36,7 +36,7 @@ describe("Phase 4 Enhancements", () => {
 		fs.unlinkSync(tempPath);
 
 		expect(files["services/ApiService.ts"]).toContain("@deprecated");
-		expect(files["types/OldType.ts"]).toContain("@deprecated");
+		expect(files["types.ts"]).toContain("@deprecated");
 	});
 
 	test("React Query hooks have better types", () => {

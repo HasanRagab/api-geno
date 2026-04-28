@@ -199,7 +199,7 @@ describe("CLI: config schema validation", () => {
 		try {
 			const files = generateFromOpenAPI(p);
 			expect(Object.keys(files).length).toBeGreaterThan(0);
-			expect(files["types/Dummy.ts"]).toBeDefined();
+			expect(files["types.ts"]).toBeDefined();
 		} finally {
 			cleanup(p);
 		}

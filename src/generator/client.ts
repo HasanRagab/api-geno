@@ -50,50 +50,40 @@ function buildMethod(
 	const queryParameters = ep.parameters?.filter((p) => p.in === "query") ?? [];
 	const hasPathParams = pathParameters.length > 0;
 	const hasQueryParams = queryParameters.length > 0 || !!ep.queryParamsRef;
-	const hasParams = hasPathParams || hasQueryParams;
-	const queryKeys = queryParameters.map((p) => `'${p.name}'`);
-	const pathTemplate = ep.path.replace(/\u007f([^\u007f]+)\u007f/g, "${$1}");
+	const pathTemplate = ep.path.replace(/([^]+)/g, "{$1}");
 
-	const paramsType = hasParams
-		? (() => {
-				if (hasPathParams && hasQueryParams) {
-					const pathType = `{ ${pathParameters
-						.map(
-							(p) =>
-								`${p.name}${p.required ? "" : "?"}: ${schemaToTS(p.schema)}`,
-						)
-						.join("; ")} }`;
-					const queryType = ep.queryParamsRef || "Record<string, unknown>";
-					return `${pathType} & ${queryType}`;
-				}
-				if (hasPathParams) {
-					return `{ ${pathParameters
-						.map(
-							(p) =>
-								`${p.name}${p.required ? "" : "?"}: ${schemaToTS(p.schema)}`,
-						)
-						.join("; ")} }`;
-				}
-				if (hasQueryParams) {
-					return ep.queryParamsRef || "Record<string, unknown>";
-				}
-				return "Record<string, unknown>";
-			})()
-		: "undefined";
+	const paramsType = (() => {
+		if (hasPathParams && hasQueryParams) {
+			const pathType = `{ ${pathParameters
+				.map(
+					(p) => `${p.name}${p.required ? "" : "?"}: ${schemaToTS(p.schema)}`,
+				)
+				.join("; ")} }`;
+			const queryType = ep.queryParamsRef || "Record<string, unknown>";
+			return `${pathType} & ${queryType}`;
+		}
+		if (hasPathParams) {
+			return `{ ${pathParameters
+				.map(
+					(p) => `${p.name}${p.required ? "" : "?"}: ${schemaToTS(p.schema)}`,
+				)
+				.join("; ")} }`;
+		}
+		if (hasQueryParams) {
+			return ep.queryParamsRef || "Record<string, unknown>";
+		}
+		return undefined;
+	})();
 
-	const bodyType = hasBody ? ep.requestBodyRef || "unknown" : "undefined";
-	const needsHeaders = hasParams || hasBody;
-	const needsCookies = needsHeaders;
-
+	const bodyType = hasBody ? ep.requestBodyRef || "unknown" : undefined;
 	const optsParts: string[] = [];
-	if (hasParams) optsParts.push(`params?: ${paramsType}`);
-	if (hasBody) optsParts.push(`body?: ${bodyType}`);
-	if (needsHeaders) optsParts.push("headers?: Record<string, string>");
-	if (needsCookies) optsParts.push("cookies?: Record<string, string>");
-	optsParts.push("validationMode?: 'strict' | 'warn' | 'none'");
+	if (paramsType) optsParts.push(`params?: ${paramsType}`);
+	if (bodyType) optsParts.push(`body?: ${bodyType}`);
+	optsParts.push("headers?: Record<string, string>");
+	optsParts.push("cookies?: Record<string, string>");
 
-	const paramsDecl =
-		optsParts.length > 0 ? `opts: { ${optsParts.join("; ")} } = {}` : "";
+	const optsDecl =
+		optsParts.length > 0 ? `opts?: { ${optsParts.join("; ")} }` : "";
 	const returnType = `Promise<Result<${responseType}, ${errorTypeName}>>`;
 	const docLines: string[] = [];
 	if (ep.summary) docLines.push(ep.summary);
@@ -109,20 +99,17 @@ function buildMethod(
 
 	builder.method(
 		methodName,
-		{ static: true, async: true, params: paramsDecl, returns: returnType },
+		{ async: true, params: optsDecl, returns: returnType },
 		(m) => {
 			const destructure: string[] = [];
-			if (hasParams) destructure.push("params");
-			if (hasBody) destructure.push("body");
-			if (needsHeaders) destructure.push("headers");
-			if (needsCookies) destructure.push("cookies");
-			destructure.push("validationMode");
+			if (paramsType) destructure.push("params");
+			if (bodyType) destructure.push("body");
+			destructure.push("headers = {}", "cookies = {}");
 
-			if (destructure.length > 0) {
-				m.line(`const { ${destructure.join(", ")} } = opts;`);
-			}
+			m.line(`const { ${destructure.join(", ")} } = opts || {};`);
+			m.blank();
 
-			// Separate path params and query params
+			// Separate path and query params if both exist
 			if (hasPathParams && hasQueryParams) {
 				const pathParamNames = pathParameters.map((p) => p.name);
 				const pathParamAssignments = pathParamNames
@@ -136,39 +123,34 @@ function buildMethod(
 					`const queryParams = params ? { ...params as any, ${pathParamRemovals} } : {};`,
 				);
 			} else if (hasPathParams) {
-				m.line(`const pathParams = params || {};`);
+				m.line(`const pathParams = (params || {}) as Record<string, any>;`);
 				m.line(`const queryParams = {};`);
 			} else if (hasQueryParams) {
 				m.line(`const pathParams = {};`);
-				m.line(`const queryParams = params || {};`);
+				m.line(`const queryParams = (params || {}) as Record<string, any>;`);
 			}
 
-			m.line(
-				`return await request<${responseType}, ${paramsType}, ${bodyType}>(`,
-			);
-			m.object({
-				path: `\`${pathTemplate}\``,
-				method: `'${lowerMethod}'`,
-				pathParams: hasPathParams ? "pathParams" : undefined,
-				queryParams: hasQueryParams ? "queryParams" : undefined,
-				paramsSchema: ep.queryParamsRef
-					? `${ep.queryParamsRef}Schema`
-					: undefined,
-				explicitQueryKeys:
-					queryKeys.length > 0 ? `[${queryKeys.join(", ")}]` : undefined,
-				body: hasBody && ep.requestBodyRef ? "body" : undefined,
-				bodySchema:
-					hasBody && ep.requestBodyRef
-						? `${ep.requestBodyRef}Schema`
-						: undefined,
-				headers: needsHeaders ? "headers" : undefined,
-				cookies: needsCookies ? "cookies" : undefined,
-				contentType:
-					contentType !== "application/json" ? `'${contentType}'` : undefined,
-				security: ep.security ? JSON.stringify(ep.security) : undefined,
-				validationMode: "validationMode",
-			});
-			m.line(");");
+			m.blank();
+			m.line(`return this.request<${responseType}>({`);
+			m.indent();
+			m.line(`path: \`${pathTemplate}\`,`);
+			m.line(`method: '${lowerMethod}',`);
+			if (hasPathParams) m.line("pathParams,");
+			if (hasQueryParams) m.line("queryParams,");
+			if (bodyType) {
+				m.line(`bodySchema: ${ep.requestBodyRef}Schema,`);
+				m.line("body,");
+			}
+			if (ep.queryParamsRef) {
+				m.line(`paramsSchema: ${ep.queryParamsRef}Schema,`);
+			}
+			m.line("headers,");
+			m.line("cookies,");
+			if (contentType !== "application/json") {
+				m.line(`contentType: '${contentType}',`);
+			}
+			m.dedent();
+			m.line("});");
 		},
 	);
 }
@@ -186,7 +168,8 @@ export function generateClient(
 	const splitServices = options.splitServices !== false;
 
 	const rootBuilder = new CodeBuilder();
-	rootBuilder.import(["httpAdapter"], "./http-adapter");
+	rootBuilder.import(["BaseService"], "./request-helper");
+	rootBuilder.import(["OpenAPIConfig"], "./openapi.config");
 	rootBuilder.import(["ok", "err", { name: "Result" }], "neverthrow");
 	rootBuilder.import(
 		[
@@ -229,8 +212,10 @@ export function generateClient(
 		services.set("ApiService", endpoints);
 	}
 
-	// Root client is a facade with re-exports only; actual implementation goes to services/<Service>.ts
+	// Generate ApiClient container
 	const serviceNames = Array.from(services.keys()).sort();
+
+	// Import all services
 	serviceNames.forEach((serviceName) => {
 		rootBuilder.import(
 			[serviceName],
@@ -238,18 +223,44 @@ export function generateClient(
 		);
 	});
 
-	if (serviceNames.length > 0) {
-		rootBuilder.blank().export(serviceNames);
-	}
+	rootBuilder.blank().classBlock("ApiClient", (cls) => {
+		// Declare service properties without initialization
+		serviceNames.forEach((serviceName) => {
+			const propName =
+				serviceName.charAt(0).toLowerCase() + serviceName.slice(1);
+			cls.line(`public readonly ${propName}: ${serviceName};`);
+		});
+		cls.blank();
+		// Initialize all services in constructor
+		cls.method(
+			"constructor",
+			{ params: "protected readonly config: OpenAPIConfig" },
+			(m) => {
+				serviceNames.forEach((serviceName) => {
+					const propName =
+						serviceName.charAt(0).toLowerCase() + serviceName.slice(1);
+					m.assign(`this.${propName}`, `new ${serviceName}(config)`);
+				});
+			},
+		);
+	});
+
+	// Export services
+	rootBuilder.blank().export(serviceNames);
 
 	const files: Record<string, string> = {};
 	files["client.ts"] = rootBuilder.toString();
 
+	// Generate service files
 	services.forEach((eps, serviceName) => {
 		const serviceBuilder = new CodeBuilder();
 		serviceBuilder.import(
-			["request"],
+			["BaseService", "request"],
 			options.flat ? "./request-helper" : "../request-helper",
+		);
+		serviceBuilder.import(
+			["OpenAPIConfig"],
+			options.flat ? "./openapi.config" : "../openapi.config",
 		);
 		serviceBuilder.import([{ name: "Result" }], "neverthrow");
 		serviceBuilder.import(
@@ -272,29 +283,21 @@ export function generateClient(
 			}
 		});
 
-		const serviceImports = new Map<string, Set<string>>();
-		const addImport = (name: string) => {
-			const fileName = name.endsWith("Schema")
-				? name.replace(/Schema$/, "")
-				: name;
-			if (!serviceImports.has(fileName))
-				serviceImports.set(fileName, new Set());
-			serviceImports.get(fileName)?.add(name);
-		};
+		const allImports = Array.from(
+			new Set([...serviceTypeImports, ...serviceValidatorImports]),
+		);
+		if (allImports.length > 0) {
+			serviceBuilder.import(
+				allImports.sort(),
+				options.flat ? "./types" : "../types",
+			);
+		}
 
-		serviceTypeImports.forEach(addImport);
-		serviceValidatorImports.forEach(addImport);
-
-		Array.from(serviceImports.entries())
-			.sort((a, b) => a[0].localeCompare(b[0]))
-			.forEach(([fileName, names]) => {
-				serviceBuilder.import(
-					Array.from(names).sort(),
-					options.flat ? `./${fileName}` : `../types/${fileName}`,
-				);
+		serviceBuilder.classBlock(`${serviceName} extends BaseService`, (cls) => {
+			cls.method("constructor", { params: "config: OpenAPIConfig" }, (m) => {
+				m.line("super(config);");
 			});
-
-		serviceBuilder.classBlock(serviceName, (cls) => {
+			cls.blank();
 			const methodNames = new Set<string>();
 			for (const ep of eps) {
 				buildMethod(cls, ep, errorTypeName, methodNames);
