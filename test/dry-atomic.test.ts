@@ -40,7 +40,8 @@ describe("DRY, Same, and Atomic Generated Code", () => {
 		const files = generateFromOpenAPI(specPath);
 		const client = files["client.ts"];
 
-		expect(client).toContain("import { BaseService } from './request-helper';");
-		expect(client).toContain("import { ok, err, Result } from 'neverthrow';");
+		// Client only imports what it needs: OpenAPIConfig and service classes
+		expect(client).toContain("import { OpenAPIConfig }");
+		expect(client).toContain("export class ApiClient");
 	});
 });

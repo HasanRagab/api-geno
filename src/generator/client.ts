@@ -168,38 +168,7 @@ export function generateClient(
 	const splitServices = options.splitServices !== false;
 
 	const rootBuilder = new CodeBuilder();
-	rootBuilder.import(["BaseService"], "./request-helper");
 	rootBuilder.import(["OpenAPIConfig"], "./openapi.config");
-	rootBuilder.import(["ok", "err", { name: "Result" }], "neverthrow");
-	rootBuilder.import(
-		[
-			"AppError",
-			"ValidationError",
-			"HttpError",
-			"AppErrorShape",
-			"ValidationErrorShape",
-			"HttpErrorShape",
-			"formatError",
-		],
-		"./errors",
-	);
-
-	const typeImports = new Set<string>();
-	const validatorImports = new Set<string>();
-
-	endpoints.forEach((ep) => {
-		if (ep.responseRef) typeImports.add(ep.responseRef);
-		if (ep.requestBodyRef) {
-			typeImports.add(ep.requestBodyRef);
-			validatorImports.add(`${ep.requestBodyRef}Schema`);
-		}
-		if (ep.queryParamsRef) validatorImports.add(`${ep.queryParamsRef}Schema`);
-	});
-
-	if (typeImports.size || validatorImports.size) {
-		const all = Array.from(new Set([...typeImports, ...validatorImports]));
-		rootBuilder.import(all, options.flat ? "./types" : "./types");
-	}
 
 	const services = new Map<string, Endpoint[]>();
 	if (splitServices) {
