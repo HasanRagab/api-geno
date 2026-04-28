@@ -37,11 +37,20 @@ function buildMethod(
 	ep: Endpoint,
 	errorTypeName: string,
 	usedNames: Set<string>,
+	strictMode: boolean = true,
 ) {
 	const methodName = toMethodName(ep, usedNames);
 	const method = ep.method.toUpperCase();
 	const lowerMethod = method.toLowerCase();
-	const responseType = ep.responseRef || "unknown";
+	const responseType =
+		strictMode && !ep.responseRef
+			? (() => {
+					console.warn(
+						`[${methodName}] Strict mode: no responseRef - using unknown`,
+					);
+					return "unknown";
+				})()
+			: ep.responseRef || "unknown";
 	const isMutation = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
 	const hasBody = isMutation && !!ep.requestBodyRef;
 
@@ -176,11 +185,13 @@ export function generateClient(
 		errorStyle?: "class" | "shape" | "both";
 		splitServices?: boolean;
 		flat?: boolean;
+		strictMode?: boolean;
 	} = {},
 ): Record<string, string> {
 	const errorStyle = options.errorStyle || "both";
 	const errorTypeName = errorStyle === "shape" ? "AppErrorShape" : "AppError";
 	const splitServices = options.splitServices !== false;
+	const strictMode = options.strictMode !== false;
 
 	const rootBuilder = new CodeBuilder();
 	rootBuilder.import(["OpenAPIConfig"], "./openapi.config");
@@ -294,7 +305,7 @@ export function generateClient(
 			cls.blank();
 			const methodNames = new Set<string>();
 			for (const ep of eps) {
-				buildMethod(cls, ep, errorTypeName, methodNames);
+				buildMethod(cls, ep, errorTypeName, methodNames, strictMode);
 			}
 		});
 

@@ -240,6 +240,22 @@ export function generateCommonHelper(): string {
 	b.return("request<T>(options, this.config)");
 	b.dedent();
 	b.line("}");
+	b.blank();
+	b.line("protected mergeRequestOpts(");
+	b.indent();
+	b.line("base: Partial<RequestOpts>,");
+	b.line(
+		"opts?: { headers?: Record<string, string>; cookies?: Record<string, string> },",
+	);
+	b.dedent();
+	b.line("): RequestOpts {");
+	b.indent();
+	b.const("{ headers, cookies }", "opts || {}");
+	b.return(
+		"{ ...(base as any), ...(headers && Object.keys(headers).length > 0 ? { headers } : {}), ...(cookies && Object.keys(cookies).length > 0 ? { cookies } : {}) }",
+	);
+	b.dedent();
+	b.line("}");
 	b.dedent();
 	b.line("}");
 

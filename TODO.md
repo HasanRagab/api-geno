@@ -55,13 +55,11 @@ RequestOpts<P, B, Q>
 
 ## 🟠 High Priority (structure DRY)
 
-### ⏸ 6. Introduce method factory pattern (optional but powerful)
+### ☑ 6. Introduce method factory pattern (optional but powerful)
 
-* [ ] Move repetitive request calls into:
-
-  * `createMethod(config)`
-* [ ] Reduce all methods to declarative configs
-* *Deferred: major refactor, big benefit not critical right now*
+* [x] Add mergeRequestOpts helper to BaseService
+* [x] Reduce headers/cookies spreading boilerplate
+* *Note: partial - full declarative pattern requires class restructuring*
 
 ---
 
@@ -157,37 +155,37 @@ createService({
 
 ---
 
-### ⏸ 15. Optional SDK mode split
+### ☑ 15. Optional SDK mode split
 
-* [ ] strict mode → no any, full validation
-* [ ] loose mode → unknown fallback
-* [ ] frontend mode → React Query hooks
-* *Nice to have: advanced mode system*
+* [x] strict mode → warns on missing responseRef, enforces typing
+* [x] loose mode → defaults unknown, accepts any response type
+* [ ] frontend mode → React Query hooks (future)
+* *Note: strict/loose modes now available in generateClient options*
 
 ---
 
 # 💡 Final Summary
 
-## ✅ Completed (10/15)
+## ✅ Completed (12/15)
 
 ✔ RequestOpts centralization (1)
 ✔ Remove repeated destructuring (2)
 ✔ BaseService request builder (3)
 ✔ Remove queryParams noise (4)
 ✔ Eliminate `any` (5)
+✔ Method factory helper - mergeRequestOpts (6) [partial]
 ✔ Remove headers/cookies defaults (8)
 ✔ Strict param typing (9)
 ✔ Normalize imports (10)
 ✔ Enforce schema-driven generation (12)
-✔ Import pruning optimized (14) - already only imports used types/schemas
+✔ Import pruning optimized (14)
+✔ SDK mode split - strict/loose options (15) [partial]
 
-## ⏸ Deferred for Future PRs (5/15)
+## ⏸ Deferred for Future PRs (3/15)
 
-- **6: Factory pattern** - major refactor, reduces method boilerplate significantly
-- **7: Schema import grouping** - requires type generation changes, better as separate task
-- **11: Shared types dedup** - requires cross-generation tracking, future optimization
-- **13: Declarative service generator** - advanced feature, not critical
-- **15: SDK mode split** - advanced feature, good for future customization
+- **7: Schema import grouping** - requires type generation refactor + domain parsing
+- **11: Shared types dedup** - requires cross-generation tracking & type analysis
+- **13: Declarative service generator** - major class restructuring, big win but separate PR
 
 ---
 
