@@ -222,8 +222,12 @@ export function generateCommonHelper(): string {
 
 	b.line("// Append query params to URL");
 	b.const(
+		"sanitizedQueryParams",
+		"Object.fromEntries(Object.entries(queryParams).filter(([_, value]) => value !== undefined && value !== null))",
+	);
+	b.const(
 		"queryStr",
-		"new URLSearchParams(queryParams as Record<string, string>).toString()",
+		"new URLSearchParams(sanitizedQueryParams as Record<string, string>).toString()",
 	);
 	b.if("queryStr", (b) => b.assign("url", "url + '?' + queryStr"));
 	b.blank();
