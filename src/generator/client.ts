@@ -5,7 +5,7 @@ import { safeMethodName, schemaToTSType } from "./utils";
 
 function getServiceName(tags?: string[]) {
 	if (tags && tags.length > 0) {
-		const tag = tags[0].replace(/[-_\s]+/g, " ");
+		const tag = tags[0].replace(/[/\\]+/g, " ").replace(/[-_\s]+/g, " ");
 		return `${tag
 			.split(" ")
 			.filter(Boolean)
