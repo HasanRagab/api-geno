@@ -29,7 +29,9 @@ describe("Phase 3 Enhancements", () => {
 		const tempPath = path.join(process.cwd(), "test", "phase3_binary.json");
 		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-		const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "fetch" });
+		const { files } = generateFromOpenAPI(tempPath, [], {
+			httpAdapter: "fetch",
+		});
 		fs.unlinkSync(tempPath);
 
 		expect(files["http-adapter.ts"]).toContain("await response.blob()");
@@ -58,7 +60,7 @@ describe("Phase 3 Enhancements", () => {
 		const tempPath = path.join(process.cwd(), "test", "phase3_rq.json");
 		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-		const files = generateFromOpenAPI(tempPath, [ReactQueryPlugin]);
+		const { files } = generateFromOpenAPI(tempPath, [ReactQueryPlugin]);
 		fs.unlinkSync(tempPath);
 
 		expect(files["hooks.ts"]).toBeDefined();

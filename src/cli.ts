@@ -3,20 +3,20 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { Command } from "commander";
+import ora from "ora";
 import { z } from "zod";
-import { generateFromOpenAPI } from "./index";
+import { generateFromOpenAPIContent } from "./index";
+import { logger } from "./logger";
+import type { EndpointStats } from "./reporter";
+import { printGenerationReport, printWatchDiff } from "./reporter";
+
+// ── Config file schema ────────────────────────────────────────────────────────
 
 const ConfigSchema = z
 	.object({
 		input: z.string().optional(),
-		in: z.string().optional(),
 		output: z.string().optional(),
-		out: z.string().optional(),
 		errorStyle: z.enum(["class", "shape", "both"]).optional(),
-		emitOnlyShapes: z.boolean().optional(),
-		skipGeneratedOutputs: z.boolean().optional(),
-		force: z.boolean().optional(),
-		outputFormat: z.string().optional(),
 		httpAdapter: z.enum(["axios", "fetch"]).optional(),
 		flat: z.boolean().optional(),
 		noZod: z.boolean().optional(),
@@ -24,247 +24,319 @@ const ConfigSchema = z
 		format: z.boolean().optional(),
 		report: z.boolean().optional(),
 		watch: z.boolean().optional(),
+		force: z.boolean().optional(),
+		dryRun: z.boolean().optional(),
+		// legacy aliases kept for backward compat
+		out: z.string().optional(),
+		in: z.string().optional(),
+		emitOnlyShapes: z.boolean().optional(),
+		skipGeneratedOutputs: z.boolean().optional(),
 	})
-	.passthrough();
+	.catchall(z.unknown());
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function isUrl(value: string): boolean {
+	return value.startsWith("http://") || value.startsWith("https://");
+}
+
+async function fetchSpec(url: string): Promise<string> {
+	const res = await fetch(url);
+	if (!res.ok) {
+		throw new Error(
+			`Failed to fetch spec from ${url}: ${res.status} ${res.statusText}`,
+		);
+	}
+	return res.text();
+}
 
 function runFormatter(outputDir: string): void {
-	const biomeResult = spawnSync(
-		"npx",
-		["biome", "format", "--write", outputDir],
-		{
-			stdio: "inherit",
-			shell: false,
-		},
-	);
-	if (biomeResult.status === 0) return;
+	const biome = spawnSync("npx", ["biome", "format", "--write", outputDir], {
+		stdio: "inherit",
+		shell: false,
+	});
+	if (biome.status === 0) return;
 
-	const prettierResult = spawnSync(
+	const prettier = spawnSync(
 		"npx",
 		["prettier", "--write", `${outputDir}/**/*.{ts,js,json}`],
-		{
-			stdio: "inherit",
-			shell: false,
-		},
+		{ stdio: "inherit", shell: false },
 	);
-	if (prettierResult.status !== 0) {
-		console.warn("Warning: Formatting failed with both biome and prettier.");
+	if (prettier.status !== 0) {
+		logger.warn("Formatting failed with both biome and prettier.");
 	}
 }
+
+function loadFileConfig(): Record<string, unknown> {
+	const configPath = path.resolve("api-geno.config.json");
+	if (!fs.existsSync(configPath)) return {};
+	try {
+		const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+		const parsed = ConfigSchema.safeParse(raw);
+		if (parsed.success) return parsed.data;
+		logger.warn(`Invalid api-geno.config.json: ${parsed.error.message}`);
+	} catch (err: unknown) {
+		logger.warn(
+			`Failed to parse api-geno.config.json: ${err instanceof Error ? err.message : String(err)}`,
+		);
+	}
+	return {};
+}
+
+// ── Command ───────────────────────────────────────────────────────────────────
 
 const program = new Command();
 
 program
 	.command("generate")
-	.description("Generate TypeScript API client code from an OpenAPI JSON file.")
+	.description("Generate a TypeScript API client from an OpenAPI spec.")
 	.addHelpText(
 		"after",
-		"\nExamples:\n  api-geno generate --input api.json --output generated --error-style both --http-adapter fetch\n\nOptions:\n  --output-format ts    Output format, currently only 'ts' is supported.\n  --http-adapter       Select axios or fetch implementation (default axios).\n  --skip-generated-outputs  Print generated code to console instead of writing files.\n  --force              Regenerate even when input+options hash is unchanged.\n",
+		`
+Examples:
+  api-geno generate -i api.json -o src/api
+  api-geno generate -i https://api.example.com/openapi.json -o src/api
+  api-geno generate -i api.json -o src/api --adapter fetch --error-style shape
+  api-geno generate -i api.json -o src/api --no-zod --flat --dry-run
+`,
 	)
-	.requiredOption("-i, --input <file>", "OpenAPI JSON file")
+	.requiredOption("-i, --input <source>", "OpenAPI spec — file path or URL")
 	.requiredOption("-o, --output <dir>", "Output directory")
 	.option(
 		"--error-style <style>",
-		"Error emission style: 'class' | 'shape' | 'both'",
-		"both",
+		"Error types to emit: class | shape | both (default: both)",
 	)
-	.option(
-		"--emit-only-shapes",
-		"Shortcut to emit only shape interfaces (sets --error-style=shape)",
-	)
-	.option("--skip-generated-outputs", "Do not write generated files to disk")
-	.option(
-		"--force",
-		"Force regeneration even if input and options did not change",
-	)
-	.option(
-		"--output-format <fmt>",
-		"Output format (ts|esm). Currently ts only",
-		"ts",
-	)
-	.option(
-		"--http-adapter <adapter>",
-		"Http adapter to generate (axios|fetch)",
-		"axios",
-	)
-	.option("--flat", "Generate all files in a single flat directory", false)
-	.option("--no-zod", "Do not generate zod validation schemas", false)
-	.option(
-		"--split-services",
-		"Split endpoints into multiple service files (default)",
-		true,
-	)
+	.option("--adapter <adapter>", "HTTP adapter: axios | fetch (default: axios)")
+	.option("--flat", "Emit all files into a single flat directory")
+	.option("--no-zod", "Skip zod validation schemas")
 	.option(
 		"--no-split-services",
-		"Generate all endpoints in a single ApiService",
+		"Emit one ApiService instead of per-tag services",
+	)
+	.option("--format", "Format output with biome or prettier if available")
+	.option("--report", "Write a coverage-report.md to the output directory")
+	.option("-f, --force", "Regenerate even when nothing has changed")
+	.option(
+		"--dry-run",
+		"Print generated files to stdout instead of writing them",
 	)
 	.option(
-		"--format",
-		"Format generated code using biome or prettier if available",
-		false,
+		"-w, --watch",
+		"Re-generate on spec changes (polls every 5s for URLs)",
 	)
-	.option("--report", "Generate a schema coverage report", false)
-	.option("-w, --watch", "Watch input file for changes and regenerate")
 	.action(async (opts: Record<string, unknown>, cmd: Command) => {
-		const options = typeof cmd?.opts === "function" ? cmd.opts() : opts;
+		const cliOpts = typeof cmd?.opts === "function" ? cmd.opts() : opts;
+		const fileConfig = loadFileConfig();
 
-		const runGeneration = async () => {
-			const configPath = path.resolve("api-geno.config.json");
-			let fileConfig: Record<string, unknown> = {};
-			if (fs.existsSync(configPath)) {
-				try {
-					const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-					const parsed = ConfigSchema.safeParse(raw);
-					if (parsed.success) {
-						fileConfig = parsed.data;
-					} else {
-						console.warn(
-							`Warning: Invalid api-geno.config.json: ${parsed.error.message}`,
-						);
-					}
-				} catch (err: unknown) {
-					const message = err instanceof Error ? err.message : String(err);
-					console.warn(
-						`Warning: Failed to parse api-geno.config.json: ${message}`,
-					);
-				}
-			}
+		// CLI wins over config file; strip undefined CLI values so they don't mask config
+		const definedCliOpts = Object.fromEntries(
+			Object.entries(cliOpts).filter(([, v]) => v !== undefined),
+		);
+		const merged = { ...fileConfig, ...definedCliOpts };
 
-			const mergedOptions = { ...fileConfig, ...options };
+		const rawInput = (merged.input as string) || (merged.in as string) || "";
+		const outputDir = path.resolve(
+			(merged.output as string) || (merged.out as string) || "./generated",
+		);
 
-			const outputDir = path.resolve(
-				(mergedOptions.output as string) ||
-					(mergedOptions.out as string) ||
-					"./generated",
+		if (!rawInput) {
+			logger.error(
+				"Missing input; use -i <file|url> or set input in api-geno.config.json",
 			);
-			const inputFile = path.resolve(
-				(mergedOptions.input as string) || (mergedOptions.in as string) || "",
-			);
+			process.exit(1);
+		}
 
-			if (!inputFile) {
-				throw new Error(
-					"Missing input file; use --input <file> or specify in api-geno.config.json",
-				);
-			}
+		const errorStyle: "class" | "shape" | "both" = merged.emitOnlyShapes
+			? "shape"
+			: (merged.errorStyle as string as "class" | "shape" | "both") || "both";
+		const httpAdapter: "axios" | "fetch" = ((merged.adapter as string) ||
+			(merged.httpAdapter as string) ||
+			"axios") as "axios" | "fetch";
+		const flat = !!merged.flat;
+		// commander's --no-X flags set opts.X = false rather than opts.noX = true
+		const noZod = !!merged.noZod || merged.zod === false;
+		const splitServices =
+			merged.splitServices !== false && merged.splitServices !== "false";
+		const dryRun = !!(merged.dryRun || merged.skipGeneratedOutputs);
+		const forceRegen = !!merged.force;
+		const doFormat = !!merged.format;
+		const doReport = !!merged.report;
+		const watchMode = !!merged.watch;
+		const inputIsUrl = isUrl(rawInput);
 
-			if (!fs.existsSync(inputFile)) {
-				throw new Error(`Input file does not exist: ${inputFile}`);
-			}
+		let prevEndpoints: EndpointStats[] = [];
 
-			const errorStyle = mergedOptions.emitOnlyShapes
-				? "shape"
-				: (mergedOptions.errorStyle as string) || "both";
-			const httpAdapter = (mergedOptions.httpAdapter as string) || "axios";
-			const skipGeneratedOutputs = !!mergedOptions.skipGeneratedOutputs;
-			const forceRegen = !!mergedOptions.force;
-			const flat = !!mergedOptions.flat;
-			const noZod = !!mergedOptions.noZod;
-			const splitServices = mergedOptions.splitServices !== false;
-
+		// ── Core generation run ─────────────────────────────────────
+		const runGeneration = async (): Promise<void> => {
 			if (!fs.existsSync(outputDir))
 				fs.mkdirSync(outputDir, { recursive: true });
 
+			// Resolve content (file or URL)
+			let content: string;
+			if (inputIsUrl) {
+				const fetchSpinner = ora({
+					text: `Fetching spec from ${rawInput}…`,
+					color: "cyan",
+				}).start();
+				try {
+					content = await fetchSpec(rawInput);
+					fetchSpinner.succeed("Spec fetched.");
+				} catch (err) {
+					fetchSpinner.fail("Fetch failed.");
+					throw err;
+				}
+			} else {
+				const inputFile = path.resolve(rawInput);
+				if (!fs.existsSync(inputFile)) {
+					throw new Error(`Input file not found: ${inputFile}`);
+				}
+				content = fs.readFileSync(inputFile, "utf-8");
+			}
+
+			// Hash for change detection
 			const crypto = await import("node:crypto");
-			const inputData = fs.readFileSync(inputFile, "utf8");
 			const hash = crypto
 				.createHash("sha256")
 				.update(
-					inputData +
+					content +
 						JSON.stringify({
 							errorStyle,
 							httpAdapter,
-							emitOnlyShapes: !!mergedOptions.emitOnlyShapes,
-							skipGeneratedOutputs,
 							flat,
 							noZod,
 							splitServices,
-							report: !!mergedOptions.report,
+							doReport,
 						}),
 				)
 				.digest("hex");
 
 			const hashPath = path.join(outputDir, ".api-geno.hash");
-			let previousHash: string | null = null;
-			if (fs.existsSync(hashPath))
-				previousHash = fs.readFileSync(hashPath, "utf8");
-
-			if (!forceRegen && previousHash === hash) {
-				if (!options.watch) {
-					console.log(
-						"No changes detected in API + options — skipping generation.",
-					);
-				}
+			if (
+				!forceRegen &&
+				fs.existsSync(hashPath) &&
+				fs.readFileSync(hashPath, "utf-8") === hash
+			) {
+				if (!watchMode)
+					logger.dim("No changes detected — skipping generation.");
 				return;
 			}
 
-			console.log(`Generating API client to ${outputDir}...`);
-			const files = generateFromOpenAPI(inputFile, [], {
-				errorStyle: errorStyle as "class" | "shape" | "both",
-				httpAdapter: httpAdapter as "axios" | "fetch",
-				flat,
-				noZod,
-				splitServices,
-				report: !!mergedOptions.report,
-			});
+			// Generate
+			const spinner = ora({
+				text: `Generating API client to ${outputDir}…`,
+				color: "cyan",
+			}).start();
+			let files: Record<string, string>;
+			let stats: ReturnType<typeof generateFromOpenAPIContent>["stats"];
+			try {
+				({ files, stats } = generateFromOpenAPIContent(content, [], {
+					errorStyle,
+					httpAdapter,
+					flat,
+					noZod,
+					splitServices,
+					report: doReport,
+				}));
+				spinner.succeed("Generation complete.");
+			} catch (err) {
+				spinner.fail("Generation failed.");
+				throw err;
+			}
 
-			if (skipGeneratedOutputs) {
-				for (const [name, content] of Object.entries(files)) {
-					console.log(`--- ${name} ---`);
-					console.log(content);
+			if (dryRun) {
+				for (const [name, fileContent] of Object.entries(files)) {
+					logger.log(`--- ${name} ---`);
+					logger.log(fileContent);
 				}
-				fs.writeFileSync(hashPath, hash, "utf8");
+				fs.writeFileSync(hashPath, hash, "utf-8");
+				printGenerationReport(stats);
 				return;
 			}
 
-			for (const [name, content] of Object.entries(files)) {
+			// Write files
+			const writtenFiles: { name: string; sizeBytes: number }[] = [];
+			for (const [name, fileContent] of Object.entries(files)) {
 				const filePath = path.join(outputDir, name);
 				const dir = path.dirname(filePath);
 				if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-				fs.writeFileSync(filePath, content, "utf-8");
+				fs.writeFileSync(filePath, fileContent, "utf-8");
+				writtenFiles.push({
+					name,
+					sizeBytes: Buffer.byteLength(fileContent, "utf-8"),
+				});
 			}
 
-			fs.writeFileSync(hashPath, hash, "utf8");
-			console.log("Generation complete.");
+			fs.writeFileSync(hashPath, hash, "utf-8");
 
-			if (mergedOptions.format) {
-				console.log("Formatting generated code...");
+			if (doFormat) {
+				const fmtSpinner = ora({ text: "Formatting…", color: "cyan" }).start();
 				runFormatter(outputDir);
-				console.log("Formatting complete.");
+				fmtSpinner.succeed("Formatting complete.");
 			}
+
+			if (watchMode && prevEndpoints.length > 0) {
+				printWatchDiff(prevEndpoints, stats.endpoints);
+			}
+			prevEndpoints = stats.endpoints;
+
+			printGenerationReport({ ...stats, writtenFiles });
 		};
 
+		// ── Initial run ─────────────────────────────────────────────
 		await runGeneration().catch((err: unknown) => {
-			const message = err instanceof Error ? err.message : String(err);
-			console.error(`Error: ${message}`);
-			if (!options.watch) process.exit(1);
+			logger.error(err instanceof Error ? err.message : String(err));
+			if (!watchMode) process.exit(1);
 		});
 
-		if (options.watch) {
-			const inputFile = path.resolve(
-				(options.input as string) || "api-geno.config.json",
-			);
-			console.log("Watching for changes...");
+		if (!watchMode) return;
 
-			const onChange = async () => {
-				console.log("Change detected, regenerating...");
+		// ── Watch mode ──────────────────────────────────────────────
+		logger.watch(
+			inputIsUrl
+				? "Polling for changes every 5s…"
+				: "Watching for file changes…",
+		);
+
+		if (inputIsUrl) {
+			// Poll the URL on an interval
+			const poll = async () => {
+				logger.watch("Checking for spec changes…");
 				await runGeneration().catch((err: unknown) => {
-					const message = err instanceof Error ? err.message : String(err);
-					console.error(`Regeneration failed: ${message}`);
+					logger.error(
+						`Regeneration failed: ${err instanceof Error ? err.message : String(err)}`,
+					);
 				});
+			};
+			setInterval(poll, 5000);
+		} else {
+			const inputFile = path.resolve(rawInput);
+			let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+			const onChange = () => {
+				clearTimeout(debounceTimer);
+				debounceTimer = setTimeout(async () => {
+					logger.watch("Change detected, regenerating…");
+					await runGeneration().catch((err: unknown) => {
+						logger.error(
+							`Regeneration failed: ${err instanceof Error ? err.message : String(err)}`,
+						);
+					});
+				}, 300);
 			};
 
 			fs.watch(inputFile, (event) => {
 				if (event === "change") onChange();
 			});
 
+			// Also watch the config file if present
 			const configPath = path.resolve("api-geno.config.json");
 			if (fs.existsSync(configPath)) {
 				fs.watch(configPath, (event) => {
 					if (event === "change") onChange();
 				});
 			}
-
-			process.stdin.resume();
 		}
+
+		process.stdin.resume();
 	});
 
 program.parse(process.argv);

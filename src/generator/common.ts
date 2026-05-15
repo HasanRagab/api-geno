@@ -2,13 +2,13 @@ import { CodeBuilder } from "../codegen/builder";
 
 export function generateCommonHelper(): string {
 	const b = new CodeBuilder();
-	b.line("import { Result, err, ok } from 'neverthrow';");
-	b.line("import { z } from 'zod';");
-	b.line("import { httpAdapter } from './http-adapter';");
-	b.line("import { OpenAPIConfig } from './openapi.config';");
-	b.line(
-		"import { ValidationError, HttpError, formatError, AppError } from './errors';",
-	);
+	b.import(["Result"], "neverthrow");
+	b.import(["err", "ok"], "neverthrow");
+	b.importType([{ name: "z" }], "zod");
+	b.import(["httpAdapter"], "./http-adapter");
+	b.importType(["OpenAPIConfig"], "./openapi.config");
+	b.import(["ValidationError", "HttpError", "formatError"], "./errors");
+	b.importType(["AppError"], "./errors");
 	b.blank();
 
 	// --- buildUrl helper ---
@@ -109,7 +109,8 @@ export function generateCommonHelper(): string {
 					},
 					{
 						condition: "Array.isArray(value)",
-						body: (b) => b.line("value.forEach(v => formData.append(key, v))"),
+						body: (b) =>
+							b.line("value.forEach((v) => { formData.append(key, v); })"),
 					},
 					{
 						condition: "value !== undefined",
@@ -145,8 +146,8 @@ export function generateCommonHelper(): string {
 			);
 			f.if("cookies && Object.keys(cookies).length > 0", (b) => {
 				b.assign(
-					"mergedHeaders['Cookie']",
-					"Object.entries(cookies).map(([k, v]) => k + '=' + v).join('; ')",
+					"mergedHeaders.Cookie",
+					"Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; ')",
 				);
 			});
 			f.return("mergedHeaders");
@@ -196,13 +197,13 @@ export function generateCommonHelper(): string {
 	b.line("} = options;");
 	b.blank();
 
-	b.const("paramsValidation", "await validateData(paramsSchema, pathParams)");
+	b.const("paramsValidation", "validateData(paramsSchema, pathParams)");
 	b.if("paramsValidation.isErr()", (b) =>
 		b.return("err(paramsValidation.error)"),
 	);
 	b.blank();
 
-	b.const("bodyValidation", "await validateData(bodySchema, body)");
+	b.const("bodyValidation", "validateData(bodySchema, body)");
 	b.if("bodyValidation.isErr()", (b) => b.return("err(bodyValidation.error)"));
 	b.blank();
 
@@ -212,9 +213,12 @@ export function generateCommonHelper(): string {
 	b.indent();
 	b.assign("url", "buildUrl(path, pathParams)");
 	b.dedent();
-	b.line("} catch (error: unknown) {");
+	b.line("} catch (_error: unknown) {");
 	b.indent();
-	b.const("message", "error instanceof Error ? error.message : String(error)");
+	b.const(
+		"message",
+		"_error instanceof Error ? _error.message : String(_error)",
+	);
 	b.return("err(new ValidationError(message))");
 	b.dedent();
 	b.line("}");
@@ -229,7 +233,7 @@ export function generateCommonHelper(): string {
 		"queryStr",
 		"new URLSearchParams(sanitizedQueryParams as Record<string, string>).toString()",
 	);
-	b.if("queryStr", (b) => b.assign("url", "url + '?' + queryStr"));
+	b.if("queryStr", (b) => b.assign("url", "`${url}?${queryStr}`"));
 	b.blank();
 
 	b.const("serializedBody", "serializeBody(body, contentType)");
@@ -279,7 +283,7 @@ export function generateCommonHelper(): string {
 	b.dedent();
 	b.line("}");
 	b.blank();
-	b.line("protected async createMethod<T>(");
+	b.line("protected async createMethod<_T>(");
 	b.indent();
 	b.line("config: {");
 	b.indent();

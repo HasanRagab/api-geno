@@ -1,10 +1,7 @@
-import { CodeBuilder } from "../codegen/builder";
-import type { Endpoint, Schema } from "../models";
-import { safeMethodName } from "./utils";
-
-function toMethodName(endpoint: Endpoint, usedNames: Set<string>) {
-	return safeMethodName(endpoint, usedNames);
-}
+import { CodeBuilder, type ImportName } from "../codegen/builder";
+import type { Endpoint } from "../models";
+import type { EndpointStats } from "../reporter";
+import { safeMethodName, schemaToTSType } from "./utils";
 
 function getServiceName(tags?: string[]) {
 	if (tags && tags.length > 0) {
@@ -18,47 +15,29 @@ function getServiceName(tags?: string[]) {
 	return "ApiService";
 }
 
-function schemaToTS(schema: Schema | undefined): string {
-	if (!schema) return "unknown";
-	if (schema.$ref) return schema.$ref.split("/").pop() || "unknown";
-	if (schema.type === "string") return "string";
-	if (schema.type === "number" || schema.type === "integer") return "number";
-	if (schema.type === "boolean") return "boolean";
-	if (schema.type === "array") {
-		const itemType = schemaToTS(schema.items || {});
-		return `${itemType}[]`;
-	}
-	if (schema.type === "object") return "Record<string, unknown>";
-	return "unknown";
-}
-
 function buildMethod(
 	builder: CodeBuilder,
 	ep: Endpoint,
 	errorTypeName: string,
 	usedNames: Set<string>,
 	strictMode: boolean = true,
-) {
-	const methodName = toMethodName(ep, usedNames);
+	warnings: string[] = [],
+): string {
+	const methodName = safeMethodName(ep, usedNames);
 	const method = ep.method.toUpperCase();
 	const lowerMethod = method.toLowerCase();
 	const responseType =
 		strictMode && !ep.responseRef
 			? (() => {
-					console.warn(
-						`[${methodName}] Strict mode: no responseRef - using unknown`,
-					);
+					warnings.push("no responseRef");
 					return "unknown";
 				})()
 			: ep.responseRef || "unknown";
 	const isMutation = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
 	const hasBody = isMutation && !!ep.requestBodyRef;
 
-	// Warn if mutation has no request body schema
 	if (isMutation && !ep.requestBodyRef) {
-		console.warn(
-			`[${methodName}] Mutation has no bodySchema - schema-driven generation requires request body validation`,
-		);
+		warnings.push("no body schema");
 	}
 	const contentType = ep.contentType || "application/json";
 
@@ -66,13 +45,14 @@ function buildMethod(
 	const queryParameters = ep.parameters?.filter((p) => p.in === "query") ?? [];
 	const hasPathParams = pathParameters.length > 0;
 	const hasQueryParams = queryParameters.length > 0 || !!ep.queryParamsRef;
-	const pathTemplate = ep.path.replace(/([^]+)/g, "{$1}");
+	const pathTemplate = ep.path;
 
 	const paramsType = (() => {
 		if (hasPathParams && hasQueryParams) {
 			const pathType = `{ ${pathParameters
 				.map(
-					(p) => `${p.name}${p.required ? "" : "?"}: ${schemaToTS(p.schema)}`,
+					(p) =>
+						`${p.name}${p.required ? "" : "?"}: ${schemaToTSType(p.schema)}`,
 				)
 				.join("; ")} }`;
 			const queryType = ep.queryParamsRef || "Record<string, unknown>";
@@ -81,7 +61,8 @@ function buildMethod(
 		if (hasPathParams) {
 			return `{ ${pathParameters
 				.map(
-					(p) => `${p.name}${p.required ? "" : "?"}: ${schemaToTS(p.schema)}`,
+					(p) =>
+						`${p.name}${p.required ? "" : "?"}: ${schemaToTSType(p.schema)}`,
 				)
 				.join("; ")} }`;
 		}
@@ -120,10 +101,21 @@ function buildMethod(
 		{ async: true, params: optsDecl, returns: returnType },
 		(m) => {
 			const pathParamNames = pathParameters.map((p) => p.name);
-			m.const(
-				"{ pathParams, queryParams, body }",
-				`await this.createMethod({ path: \`${pathTemplate}\`, method: '${lowerMethod}'${pathParamNames.length > 0 ? `, pathParamNames: [${pathParamNames.map((n) => `'${n}'`).join(", ")}]` : ""} }, opts)`,
-			);
+			const usedVars = [];
+			if (hasPathParams) usedVars.push("pathParams");
+			if (hasQueryParams) usedVars.push("queryParams");
+			if (bodyType) usedVars.push("body");
+
+			if (usedVars.length > 0) {
+				m.const(
+					`{ ${usedVars.join(", ")} }`,
+					`await this.createMethod({ path: \`${pathTemplate}\`, method: '${lowerMethod}'${pathParamNames.length > 0 ? `, pathParamNames: [${pathParamNames.map((n) => `'${n}'`).join(", ")}]` : ""} }, opts)`,
+				);
+			} else {
+				m.line(
+					`await this.createMethod({ path: \`${pathTemplate}\`, method: '${lowerMethod}'${pathParamNames.length > 0 ? `, pathParamNames: [${pathParamNames.map((n) => `'${n}'`).join(", ")}]` : ""} }, opts)`,
+				);
+			}
 			m.blank();
 			m.line(`return this.request<${responseType}>({`);
 			m.indent();
@@ -151,6 +143,7 @@ function buildMethod(
 			m.line("});");
 		},
 	);
+	return methodName;
 }
 
 export function generateClient(
@@ -161,14 +154,15 @@ export function generateClient(
 		flat?: boolean;
 		strictMode?: boolean;
 	} = {},
-): Record<string, string> {
+): { files: Record<string, string>; endpointStats: EndpointStats[] } {
 	const errorStyle = options.errorStyle || "both";
 	const errorTypeName = errorStyle === "shape" ? "AppErrorShape" : "AppError";
 	const splitServices = options.splitServices !== false;
 	const strictMode = options.strictMode !== false;
+	const allEndpointStats: EndpointStats[] = [];
 
 	const rootBuilder = new CodeBuilder();
-	rootBuilder.import(["OpenAPIConfig"], "./openapi.config");
+	rootBuilder.importType([{ name: "OpenAPIConfig" }], "./openapi.config");
 
 	const services = new Map<string, Endpoint[]>();
 	if (splitServices) {
@@ -233,18 +227,22 @@ export function generateClient(
 	services.forEach((eps, serviceName) => {
 		const serviceBuilder = new CodeBuilder();
 		// Import order: external, internal core, errors, types
-		serviceBuilder.import([{ name: "Result" }], "neverthrow");
+		serviceBuilder.import(
+			[
+				{ name: "AppError", isType: true },
+				{ name: "HttpError", isType: true },
+				{ name: "ValidationError", isType: true },
+				"formatError",
+			],
+			options.flat ? "./errors" : "../errors",
+		);
 		serviceBuilder.import(
 			["BaseService"],
 			options.flat ? "./request-helper" : "../request-helper",
 		);
 		serviceBuilder.import(
-			["OpenAPIConfig"],
-			options.flat ? "./openapi.config" : "../openapi.config",
-		);
-		serviceBuilder.import(
-			[errorTypeName],
-			options.flat ? "./errors" : "../errors",
+			[{ name: "Result", isType: true }, "err", "ok"],
+			"neverthrow",
 		);
 
 		const serviceTypeImports = new Set<string>();
@@ -262,30 +260,49 @@ export function generateClient(
 			}
 		});
 
-		const allImports = Array.from(
-			new Set([...serviceTypeImports, ...serviceValidatorImports]),
-		);
+		const allImports: ImportName[] = [
+			...Array.from(serviceTypeImports)
+				.sort()
+				.map((name) => ({ name, isType: true })),
+			...Array.from(serviceValidatorImports).sort(),
+		];
+
 		if (allImports.length > 0) {
-			serviceBuilder.import(
-				allImports.sort(),
-				options.flat ? "./types" : "../types",
-			);
+			serviceBuilder.import(allImports, options.flat ? "./types" : "../types");
 		}
 
-		serviceBuilder.classBlock(`${serviceName} extends BaseService`, (cls) => {
-			cls.method("constructor", { params: "config: OpenAPIConfig" }, (m) => {
-				m.line("super(config);");
-			});
-			cls.blank();
-			const methodNames = new Set<string>();
-			for (const ep of eps) {
-				buildMethod(cls, ep, errorTypeName, methodNames, strictMode);
-			}
-		});
+		serviceBuilder.classBlock(
+			serviceName,
+			(cls) => {
+				cls.blank();
+				const methodNames = new Set<string>();
+				for (const ep of eps) {
+					const epWarnings: string[] = [];
+					const methodName = buildMethod(
+						cls,
+						ep,
+						errorTypeName,
+						methodNames,
+						strictMode,
+						epWarnings,
+					);
+					allEndpointStats.push({
+						method: ep.method,
+						path: ep.path,
+						methodName,
+						service: serviceName,
+						responseType: ep.responseRef || "unknown",
+						warnings: epWarnings,
+						deprecated: ep.deprecated,
+					});
+				}
+			},
+			{ extends: "BaseService" },
+		);
 
 		files[options.flat ? `${serviceName}.ts` : `services/${serviceName}.ts`] =
 			serviceBuilder.toString();
 	});
 
-	return files;
+	return { files, endpointStats: allEndpointStats };
 }

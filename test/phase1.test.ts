@@ -64,7 +64,9 @@ describe("Phase 1 Enhancements", () => {
 		const tempPath = path.join(process.cwd(), "test", "phase1.json");
 		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-		const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
+		const { files } = generateFromOpenAPI(tempPath, [], {
+			httpAdapter: "axios",
+		});
 		fs.unlinkSync(tempPath);
 
 		const petService = files["services/PetService.ts"];
@@ -99,7 +101,9 @@ describe("Phase 1 Enhancements", () => {
 		const tempPath = path.join(process.cwd(), "test", "enums.json");
 		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-		const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
+		const { files } = generateFromOpenAPI(tempPath, [], {
+			httpAdapter: "axios",
+		});
 		fs.unlinkSync(tempPath);
 
 		const types = files["types.ts"];
@@ -130,7 +134,9 @@ describe("Phase 1 Enhancements", () => {
 		const tempPath = path.join(process.cwd(), "test", "formats.json");
 		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-		const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
+		const { files } = generateFromOpenAPI(tempPath, [], {
+			httpAdapter: "axios",
+		});
 		fs.unlinkSync(tempPath);
 
 		const types = files["types.ts"];

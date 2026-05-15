@@ -5,7 +5,9 @@
  *   { name: 'Foo' }            → `Foo`
  *   { name: 'Foo', as: 'Bar' } → `Foo as Bar`
  */
-export type ImportName = string | { name: string; as?: string };
+export type ImportName =
+	| string
+	| { name: string; as?: string; isType?: boolean };
 
 // export type Assignment<Name extends string, Type extends string> =
 //   `${Name}: ${Type} = ${string}`;
@@ -128,9 +130,12 @@ export class CodeBuilder {
 	// (type alias used internally by all import/export methods)
 	private _specifiers(names: ImportName[]): string {
 		return names
-			.map((n) =>
-				typeof n === "string" ? n : n.as ? `${n.name} as ${n.as}` : n.name,
-			)
+			.map((n) => {
+				if (typeof n === "string") return n;
+				const typePrefix = n.isType ? "type " : "";
+				const name = n.as ? `${n.name} as ${n.as}` : n.name;
+				return `${typePrefix}${name}`;
+			})
 			.join(", ");
 	}
 

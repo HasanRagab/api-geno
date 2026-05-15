@@ -31,7 +31,7 @@ describe("Phase 6 Enhancements: Content-Type Support", () => {
 		const tempPath = path.join(process.cwd(), "test", "phase6_multipart.json");
 		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-		const files = generateFromOpenAPI(tempPath, []);
+		const { files } = generateFromOpenAPI(tempPath, []);
 		fs.unlinkSync(tempPath);
 
 		expect(files["services/ApiService.ts"]).toContain(

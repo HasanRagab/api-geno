@@ -1,4 +1,49 @@
-import type { Endpoint, OpenAPIModel } from "../models";
+import type { Endpoint, OpenAPIModel, Schema } from "../models";
+
+export function schemaToTSType(schema: Schema | undefined): string {
+	if (!schema) return "unknown";
+	if (schema.$ref) return schema.$ref.split("/").pop() || "unknown";
+
+	if (schema.allOf?.length) {
+		return schema.allOf.map(schemaToTSType).join(" & ") || "unknown";
+	}
+	if (schema.oneOf?.length) {
+		return `(${schema.oneOf.map(schemaToTSType).join(" | ")})`;
+	}
+	if (schema.anyOf?.length) {
+		return `(${schema.anyOf.map(schemaToTSType).join(" | ")})`;
+	}
+
+	if (schema.enum) {
+		return schema.enum.map((v) => JSON.stringify(v)).join(" | ");
+	}
+
+	switch (schema.type) {
+		case "string":
+			return "string";
+		case "number":
+		case "integer":
+			return "number";
+		case "boolean":
+			return "boolean";
+		case "array": {
+			const item = schemaToTSType(schema.items);
+			return `${item}[]`;
+		}
+		case "object": {
+			if (!schema.properties) return "Record<string, unknown>";
+			const props = Object.entries(schema.properties)
+				.map(([k, v]) => {
+					const optional = !(schema.required ?? []).includes(k) ? "?" : "";
+					return `${k}${optional}: ${schemaToTSType(v)}`;
+				})
+				.join("; ");
+			return `{ ${props} }`;
+		}
+		default:
+			return "unknown";
+	}
+}
 
 export function sanitizeIdentifier(value: string): string {
 	const cleaned = value

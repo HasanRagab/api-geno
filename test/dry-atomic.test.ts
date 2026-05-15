@@ -6,19 +6,19 @@ describe("DRY, Same, and Atomic Generated Code", () => {
 	const specPath = path.join(__dirname, "specs/openapi3.json");
 
 	it("should generate atomic helper functions in request-helper.ts", () => {
-		const files = generateFromOpenAPI(specPath);
+		const { files } = generateFromOpenAPI(specPath);
 		const helper = files["request-helper.ts"];
 
 		expect(helper).toContain("function buildUrl");
 		expect(helper).toContain("function validateData");
 		expect(helper).toContain("function serializeBody");
 		expect(helper).toContain("function getHeaders");
-		expect(helper).toContain("await validateData(paramsSchema, pathParams)");
-		expect(helper).toContain("await validateData(bodySchema, body)");
+		expect(helper).toContain("validateData(paramsSchema, pathParams)");
+		expect(helper).toContain("validateData(bodySchema, body)");
 	});
 
 	it("should generate DRY request calls in service files", () => {
-		const files = generateFromOpenAPI(specPath);
+		const { files } = generateFromOpenAPI(specPath);
 		// Find any service file
 		const serviceFile = Object.keys(files).find((k) =>
 			k.startsWith("services/"),
@@ -37,11 +37,11 @@ describe("DRY, Same, and Atomic Generated Code", () => {
 	});
 
 	it("should use CodeBuilder import methods consistently", () => {
-		const files = generateFromOpenAPI(specPath);
+		const { files } = generateFromOpenAPI(specPath);
 		const client = files["client.ts"];
 
 		// Client only imports what it needs: OpenAPIConfig and service classes
-		expect(client).toContain("import { OpenAPIConfig }");
+		expect(client).toMatch(/import\s+(?:type\s+)?\{\s*OpenAPIConfig\s*\}/);
 		expect(client).toContain("export class ApiClient");
 	});
 });

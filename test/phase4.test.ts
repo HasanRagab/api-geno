@@ -32,7 +32,7 @@ describe("Phase 4 Enhancements", () => {
 		const tempPath = path.join(process.cwd(), "test", "phase4_depr.json");
 		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-		const files = generateFromOpenAPI(tempPath, []);
+		const { files } = generateFromOpenAPI(tempPath, []);
 		fs.unlinkSync(tempPath);
 
 		expect(files["services/ApiService.ts"]).toContain("@deprecated");
@@ -69,7 +69,7 @@ describe("Phase 4 Enhancements", () => {
 		const tempPath = path.join(process.cwd(), "test", "phase4_rq_types.json");
 		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-		const files = generateFromOpenAPI(tempPath, [ReactQueryPlugin]);
+		const { files } = generateFromOpenAPI(tempPath, [ReactQueryPlugin]);
 		fs.unlinkSync(tempPath);
 
 		expect(files["hooks.ts"]).toContain("Result<Item, AppError>");

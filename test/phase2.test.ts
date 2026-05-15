@@ -15,7 +15,9 @@ describe("Phase 2 Enhancements", () => {
 		const tempPath = path.join(process.cwd(), "test", "phase2_axios.json");
 		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-		const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
+		const { files } = generateFromOpenAPI(tempPath, [], {
+			httpAdapter: "axios",
+		});
 		fs.unlinkSync(tempPath);
 
 		expect(files["http-adapter.ts"]).toContain(
@@ -35,7 +37,9 @@ describe("Phase 2 Enhancements", () => {
 		const tempPath = path.join(process.cwd(), "test", "phase2_v3_base.json");
 		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-		const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
+		const { files } = generateFromOpenAPI(tempPath, [], {
+			httpAdapter: "axios",
+		});
 		fs.unlinkSync(tempPath);
 
 		expect(files["openapi.config.ts"]).toContain(
@@ -57,7 +61,9 @@ describe("Phase 2 Enhancements", () => {
 		const tempPath = path.join(process.cwd(), "test", "phase2_v2_base.json");
 		fs.writeFileSync(tempPath, JSON.stringify(spec), "utf8");
 
-		const files = generateFromOpenAPI(tempPath, [], { httpAdapter: "axios" });
+		const { files } = generateFromOpenAPI(tempPath, [], {
+			httpAdapter: "axios",
+		});
 		fs.unlinkSync(tempPath);
 
 		expect(files["openapi.config.ts"]).toContain(

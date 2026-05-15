@@ -197,7 +197,7 @@ describe("CLI: config schema validation", () => {
 
 		const p = writeTemp("hardening_e2e.json", spec);
 		try {
-			const files = generateFromOpenAPI(p);
+			const { files } = generateFromOpenAPI(p);
 			expect(Object.keys(files).length).toBeGreaterThan(0);
 			expect(files["types.ts"]).toBeDefined();
 		} finally {

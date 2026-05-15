@@ -1,5 +1,6 @@
 import { CodeBuilder } from "../codegen/builder";
 import type { Schema } from "../models";
+import { schemaToTSType } from "./utils";
 import { buildZodSchema } from "./validation";
 
 export function generateTypes(
@@ -29,9 +30,7 @@ export function generateTypes(
 			builder.line(buildZodSchema(name, schema));
 			builder.line(`export type ${name} = z.infer<typeof ${name}Schema>;`);
 		} else {
-			builder.line(
-				`export type ${name} = any; // TODO: implement full type gen without zod`,
-			);
+			builder.line(`export type ${name} = ${schemaToTSType(schema)};`);
 		}
 		builder.blank();
 	});

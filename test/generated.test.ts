@@ -104,7 +104,7 @@ describe("generated code", () => {
 			},
 		];
 
-		const generated = generateClient(endpoints);
+		const { files: generated } = generateClient(endpoints);
 		const service = generated["services/UsersService.ts"];
 
 		expect(service).toContain("async getUser(");
@@ -128,7 +128,7 @@ describe("generated code", () => {
 			},
 		];
 
-		const generated = generateClient(endpoints);
+		const { files: generated } = generateClient(endpoints);
 		const service = generated["services/XService.ts"];
 
 		expect(service).toContain("body?: DeleteXDto");
@@ -136,7 +136,7 @@ describe("generated code", () => {
 	});
 
 	test("generateFromOpenAPI uses fetch adapter when requested", () => {
-		const files = generateFromOpenAPI("test/specs/openapi3.json", [], {
+		const { files } = generateFromOpenAPI("test/specs/openapi3.json", [], {
 			httpAdapter: "fetch",
 		});
 		expect(files["http-adapter.ts"]).toContain("fetch(");
@@ -144,7 +144,7 @@ describe("generated code", () => {
 	});
 
 	test("generateFromOpenAPI fetch adapter does safe JSON parsing", () => {
-		const files = generateFromOpenAPI("test/specs/openapi3.json", [], {
+		const { files } = generateFromOpenAPI("test/specs/openapi3.json", [], {
 			httpAdapter: "fetch",
 		});
 		expect(files["http-adapter.ts"]).toContain("function safeParseJson");
@@ -187,7 +187,7 @@ describe("generated code", () => {
 			}),
 		};
 
-		const files = generateFromOpenAPI(tempPath, [plugin], {
+		const { files } = generateFromOpenAPI(tempPath, [plugin], {
 			httpAdapter: "axios",
 		});
 		fs.unlinkSync(tempPath);
