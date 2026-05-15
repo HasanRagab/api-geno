@@ -18,6 +18,10 @@ import {
 
 type RawObject = Record<string, unknown>;
 
+function normalizePath(path: string): string {
+	return path.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, "{$1}");
+}
+
 function getOperationId(d: RawObject, method: string, path: string): string {
 	return String(d.operationId || `${method}_${path.replace(/\W/g, "_")}`);
 }
@@ -120,7 +124,8 @@ function parseV3(spec: unknown): OpenAPIModel {
 	const endpoints: Endpoint[] = [];
 	const paths = isObject(spec.paths) ? spec.paths : {};
 
-	for (const [path, methodsRaw] of Object.entries(paths)) {
+	for (const [rawPath, methodsRaw] of Object.entries(paths)) {
+		const path = normalizePath(rawPath);
 		const methods = isObject(methodsRaw) ? methodsRaw : {};
 
 		for (const [method, detailsRaw] of Object.entries(methods)) {
@@ -211,7 +216,8 @@ function parseV2(spec: unknown): OpenAPIModel {
 	const endpoints: Endpoint[] = [];
 	const paths = isObject(spec.paths) ? spec.paths : {};
 
-	for (const [path, methodsRaw] of Object.entries(paths)) {
+	for (const [rawPath, methodsRaw] of Object.entries(paths)) {
+		const path = normalizePath(rawPath);
 		const methods = isObject(methodsRaw) ? methodsRaw : {};
 		const pathParams = toParameterList(methods.parameters);
 
