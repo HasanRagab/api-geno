@@ -285,7 +285,7 @@ describe("generated code", () => {
 		expect(helper).toMatch(
 			/Object\.fromEntries\(Object\.entries\(queryParams\)\.filter\(/,
 		);
-		expect(helper).toMatch(/validateData\(paramsSchema, pathParams\)/);
+		expect(helper).toMatch(/validateData\(paramsSchema, paramsTarget\)/);
 	});
 
 	test("client uses formatError in request helper", () => {

@@ -174,3 +174,27 @@ export function printWatchDiff(
 	}
 	console.log();
 }
+
+export function printDryRunSummary(files: Record<string, string>): void {
+	const HR2 = pc.dim("─".repeat(68));
+	console.log();
+	console.log(
+		`  ${pc.bold("Dry-run output")}  ${pc.dim("(no files written)")}`,
+	);
+	console.log(HR2);
+	for (const [name, content] of Object.entries(files).sort(([a], [b]) =>
+		a.localeCompare(b),
+	)) {
+		const lines = content.split("\n").length;
+		const sizeBytes = Buffer.byteLength(content);
+		const size =
+			sizeBytes < 1024
+				? `${sizeBytes} b`
+				: `${(sizeBytes / 1024).toFixed(1)} kb`;
+		console.log(
+			`    ${pc.cyan(name.padEnd(48))} ${pc.dim(`${lines} lines  ${size}`)}`,
+		);
+	}
+	console.log(HR2);
+	console.log();
+}

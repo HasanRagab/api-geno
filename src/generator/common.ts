@@ -197,7 +197,11 @@ export function generateCommonHelper(): string {
 	b.line("} = options;");
 	b.blank();
 
-	b.const("paramsValidation", "validateData(paramsSchema, pathParams)");
+	b.const(
+		"paramsTarget",
+		"pathParams && Object.keys(pathParams).length > 0 ? pathParams : queryParams",
+	);
+	b.const("paramsValidation", "validateData(paramsSchema, paramsTarget)");
 	b.if("paramsValidation.isErr()", (b) =>
 		b.return("err(paramsValidation.error)"),
 	);

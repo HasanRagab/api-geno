@@ -13,7 +13,10 @@ describe("DRY, Same, and Atomic Generated Code", () => {
 		expect(helper).toContain("function validateData");
 		expect(helper).toContain("function serializeBody");
 		expect(helper).toContain("function getHeaders");
-		expect(helper).toContain("validateData(paramsSchema, pathParams)");
+		expect(helper).toContain(
+			"const paramsTarget = pathParams && Object.keys(pathParams).length > 0 ? pathParams : queryParams;",
+		);
+		expect(helper).toContain("validateData(paramsSchema, paramsTarget)");
 		expect(helper).toContain("validateData(bodySchema, body)");
 	});
 

@@ -18,6 +18,8 @@ export type GenerateOptions = {
 	noZod?: boolean;
 	splitServices?: boolean;
 	report?: boolean;
+	onlyTags?: string[];
+	verbose?: boolean;
 };
 
 function runPipeline(
@@ -29,6 +31,14 @@ function runPipeline(
 	for (const p of plugins) {
 		p.beforeGenerate?.(api);
 	}
+
+	if (options.onlyTags && options.onlyTags.length > 0) {
+		const allowed = new Set(options.onlyTags.map((t) => t.toLowerCase()));
+		api.endpoints = api.endpoints.filter((ep) =>
+			ep.tags?.some((t) => allowed.has(t.toLowerCase())),
+		);
+	}
+
 	for (const p of plugins) {
 		if (p.transformEndpoint) {
 			const transform = p.transformEndpoint;
